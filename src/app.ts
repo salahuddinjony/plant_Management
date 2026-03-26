@@ -16,7 +16,7 @@ app.get("/", (req, res) => {
   res.json({
     statusCode: 200,
     success: true,
-    message: "Welcome to nursery server app"
+    message: "Welcome to nursery server app, Server is running successfully",
   });
 });
 
@@ -35,7 +35,7 @@ app.use(
 );
 
 // Routes
-app.use("/api/v1", router);
+app.use("/api/v1", router); 
 
 // global error handler
 app.use(globalErrorHandler);

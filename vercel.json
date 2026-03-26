@@ -1,23 +1,9 @@
 {
-  "version": 2,
-  "builds": [
+  "outputDirectory": ".",
+  "rewrites": [
     {
-      "src": "dist/server.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "dist/server.js",
-      "methods": [
-        "GET",
-        "POST",
-        "PUT",
-        "PATCH",
-        "DELETE",
-        "OPTIONS"
-      ]
+      "source": "/(.*)",
+      "destination": "/api/index"
     }
   ],
   "env": {
