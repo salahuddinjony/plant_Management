@@ -63,5 +63,16 @@ router.patch(
   userController.updateStatus
 );
 
+/**
+ * @route DELETE /users/delete/:userId
+ * @group User - Delete user (soft delete)
+ * @security JWT
+ */
+router.delete(
+  "/delete/:userId",
+  auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN, USER_ROLE.USER),
+  userController.deleteUser
+);
+
 
 export const userRoute = router;

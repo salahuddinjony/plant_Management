@@ -1,6 +1,7 @@
 import httpStatus from "http-status";
 import QueryBuilder from "../../builder/QueryBuilder";
 import AppError from "../../errors/AppError";
+import { USER_STATUS } from "../../constants/status.constants";
 import { UserModel } from "./users.model";
 
 /**
@@ -71,6 +72,22 @@ const updateStatus = async (userId: string, status: string) => {
   return user;
 };
 
+/**
+ * Soft delete user (marks deleted, keeps document for history).
+ */
+const deleteUser = async (userId: string) => {
+  const user = await UserModel.findByIdAndUpdate(
+    userId,
+    { status: USER_STATUS.DELETED, isDeleted: true },
+    { new: true }
+  ).select("id name emailOrPhone role status profilePicture avatarId");
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  return user;
+};
 
 
 export const userService = {
@@ -78,4 +95,5 @@ export const userService = {
   updateProfile,
   getAllUsers,
   updateStatus,
+  deleteUser,
 };

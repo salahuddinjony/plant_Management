@@ -78,9 +78,33 @@ const updateStatus = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+/// Delete user (soft delete)
+const deleteUser = catchAsync(async (req: Request, res: Response) => {
+  const { userId } = req.params;
+
+  // Allow normal users to delete only themselves; admins can delete anyone.
+  if (req.user?.role === "user" && req.user?.id !== userId) {
+    return sendResponse(res, {
+      statusCode: httpStatus.FORBIDDEN,
+      success: false,
+      message: "You are not authorized to delete this user",
+      data: null,
+    });
+  }
+
+  const result = await userService.deleteUser(userId as string);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "User deleted successfully",
+    data: result,
+  });
+});
+
 export const userController = {
   updateProfile,
   getAllUsers,
   updateStatus,
   getProfile,
+  deleteUser,
 };
