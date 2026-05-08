@@ -100,11 +100,13 @@ cp .env.example .env
 
 ```env
 # Database
-MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/nursery-shop
+MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/nursery-shop
 
 # Authentication
-JWT_SECRET=your-secret-key
-JWT_EXPIRES_IN=7d
+JWT_ACCESS_SECRET=your-access-secret
+JWT_REFRESH_SECRET=your-refresh-secret
+JWT_ACCESS_EXPIRES_IN=30
+JWT_REFRESH_EXPIRES_IN=360
 
 # Cloudinary (Image Upload)
 CLOUDINARY_CLOUD_NAME=your-cloud-name
@@ -112,9 +114,7 @@ CLOUDINARY_API_KEY=your-api-key
 CLOUDINARY_API_SECRET=your-api-secret
 
 # Email Service
-SMTP_HOST=your-smtp-host
-SMTP_PORT=587
-SMTP_USER=your-email
+SMTP_USERNAME=your-email
 SMTP_PASSWORD=your-password
 
 # Server
