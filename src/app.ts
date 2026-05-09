@@ -16,7 +16,7 @@ app.get("/", (req, res) => {
   res.json({
     statusCode: 200,
     success: true,
-    message: "Welcome to nursery server app, Server is running successfully by Salah",
+    message: "Welcome to nursery server app, Server is running successfully by Salah Uddin with updated code",
   });
 });
 
