@@ -1,6 +1,5 @@
 .env.local
 .gemini
-.github
 .postman
 erd
 markdown
@@ -10,7 +9,6 @@ postman
 node_modules
 .env
 .env.local
-.github
 dist
 documentations
 coverage
