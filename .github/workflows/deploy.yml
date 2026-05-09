@@ -2,6 +2,8 @@ name: Deploy to DigitalOcean
 
 on:
   push:
+    branches:
+      - main
 
 jobs:
   deploy:
@@ -18,7 +20,15 @@ jobs:
 
           script: |
             cd ~/plant_Management
+
             git pull origin main
+
             npm install
+
             npm run build
-            pm2 restart nursery-server
+
+            pm2 delete nursery-server || true
+
+            pm2 start dist/server.js --name nursery-server
+
+            pm2 save
