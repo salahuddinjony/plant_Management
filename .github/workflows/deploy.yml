@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VPS
+      - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@master
 
         with:
@@ -19,16 +19,31 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
 
           script: |
+            set -e
+
+            echo "📦 Moving to project directory..."
             cd ~/plant_Management
 
+            echo "🔄 Syncing latest code..."
+            git reset --hard origin/main
             git pull origin main
 
+            echo "📥 Installing dependencies..."
             npm install
 
+            echo "🧹 Cleaning old build..."
+            rm -rf dist
+
+            echo "🏗️ Building project..."
             npm run build
 
+            echo "🛑 Stopping old PM2 process..."
             pm2 delete nursery-server || true
 
+            echo "🚀 Starting new process..."
             pm2 start dist/server.js --name nursery-server
 
+            echo "💾 Saving PM2 process list..."
             pm2 save
+
+            echo "✅ Deployment completed successfully!"
