@@ -45,7 +45,11 @@ router.patch(
  * @route GET /all-users
  * @group User - Admin can see all registered users list
  */
-router.get("/all-users", auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN), userController.getAllUsers);
+router.get(
+  "/all-users",
+  auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN, USER_ROLE.USER),
+  userController.getAllUsers
+);
 
 /**
  * @route PATCH /user/update-status

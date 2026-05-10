@@ -1,7 +1,7 @@
 import httpStatus from "http-status";
 import QueryBuilder from "../../builder/QueryBuilder";
 import AppError from "../../errors/AppError";
-import { USER_STATUS } from "../../constants/status.constants";
+import { USER_ROLE, USER_STATUS } from "../../constants/status.constants";
 import { UserModel } from "./users.model";
 
 /**
@@ -36,17 +36,22 @@ const updateProfile = async (userId: string, payload: any) => {
 };
 
 /**
- * Get all users with by admin
+ * Get all users (omits `status: deleted`; blocked/inactive/active still included).
  * @param query 
+ * @param viewerRole - When `user`, only rows with role `user` are returned (staff excluded).
  * @returns List of users and meta data
  */
-const getAllUsers = async (query: Record<string, unknown>) => {
+const getAllUsers = async (query: Record<string, unknown>, viewerRole?: string) => {
+  const baseFilter: Record<string, unknown> = {
+    status: { $ne: USER_STATUS.DELETED },
+  };
+  if (viewerRole === USER_ROLE.USER) {
+    baseFilter.role = USER_ROLE.USER;
+  }
+
   const userQuery = new QueryBuilder(
-    UserModel.find({
-      isDeleted: { $ne: true },
-      status: { $nin: [USER_STATUS.DELETED] },
-    })
-      .select("id name profilePicture avatarId emailOrPhone role status createdAt updatedAt")
+    UserModel.find(baseFilter)
+      .select("id name profilePicture avatarId emailOrPhone role status isDeleted createdAt updatedAt")
       .populate("avatarId", "name imageUrl")
       .lean(),
     query
@@ -63,11 +68,23 @@ const getAllUsers = async (query: Record<string, unknown>) => {
 
 /**
  * Update user status by admin
+ * Admin and Super Admin accounts cannot have their status changed via this API.
  * @param userId 
  * @param status 
  * @returns updated user
  */
 const updateStatus = async (userId: string, status: string) => {
+  const target = await UserModel.findById(userId).select("role");
+  if (!target) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+  if (target.role === USER_ROLE.ADMIN || target.role === USER_ROLE.SUPER_ADMIN) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Admin and Super Admin status cannot be updated."
+    );
+  }
+
   const user = await UserModel.findByIdAndUpdate(userId, { status }, { new: true });
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
@@ -77,8 +94,20 @@ const updateStatus = async (userId: string, status: string) => {
 
 /**
  * Soft delete user (marks deleted, keeps document for history).
+ * Admin and Super Admin accounts cannot be deleted.
  */
 const deleteUser = async (userId: string) => {
+  const target = await UserModel.findById(userId).select("role");
+  if (!target) {
+    throw new AppError(httpStatus.NOT_FOUND, "User not found");
+  }
+  if (target.role === USER_ROLE.ADMIN || target.role === USER_ROLE.SUPER_ADMIN) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      "Admin and Super Admin accounts cannot be deleted."
+    );
+  }
+
   const user = await UserModel.findByIdAndUpdate(
     userId,
     { status: USER_STATUS.DELETED, isDeleted: true },
