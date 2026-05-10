@@ -29,6 +29,7 @@ const getProfile = catchAsync(async (req: Request, res: Response) => {
 const updateProfile = catchAsync(async (req: Request, res: Response) => {
   const { id } = req.user;
   const body = req.body;
+  delete body.role;
 
   // Handle profile picture upload
   if (req.file) {

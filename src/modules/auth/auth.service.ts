@@ -2,7 +2,7 @@ import status from "http-status";
 import { JwtPayload } from "jsonwebtoken";
 import { USER_ROLE, USER_STATUS } from "../../constants/status.constants";
 import AppError from "../../errors/AppError";
-import { TUser } from "../users/users.interface";
+import { TUser, TUserRole } from "../users/users.interface";
 import { UserModel } from "../users/users.model";
 import { TSignUp } from "./auth.interface";
 import {
@@ -21,6 +21,31 @@ import { TLogin } from "./auth.validation";
  * @throws {AppError} - If user creation fails.
  */
 const signUpService = async (payload: TSignUp) => {
+  const requestedRole = (payload as TSignUp & { role?: string }).role;
+
+  if (requestedRole === USER_ROLE.SUPER_ADMIN) {
+    throw new AppError(
+      status.FORBIDDEN,
+      "Super Admin cannot be created via signup. Only the seeded super admin is allowed."
+    );
+  }
+
+  let resolvedRole: TUserRole = USER_ROLE.USER;
+  if (requestedRole === USER_ROLE.ADMIN) {
+    const activeAdminCount = await UserModel.countDocuments({
+      role: USER_ROLE.ADMIN,
+      isDeleted: { $ne: true },
+      status: { $nin: [USER_STATUS.DELETED] },
+    });
+    if (activeAdminCount >= 1) {
+      throw new AppError(
+        status.CONFLICT,
+        "An admin account already exists. Only one admin is allowed."
+      );
+    }
+    resolvedRole = USER_ROLE.ADMIN;
+  }
+
   // Check if user already exists
   const existingUser = await UserModel.findOne({ emailOrPhone: payload.emailOrPhone });
 
@@ -34,7 +59,7 @@ const signUpService = async (payload: TSignUp) => {
       emailOrPhone: payload.emailOrPhone,
       password: payload.password,
       profilePicture: payload.profilePicture,
-      role: (payload as any).role || USER_ROLE.USER,
+      role: resolvedRole,
     };
 
     // Create a new user

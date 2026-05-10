@@ -42,7 +42,13 @@ const updateProfile = async (userId: string, payload: any) => {
  */
 const getAllUsers = async (query: Record<string, unknown>) => {
   const userQuery = new QueryBuilder(
-    UserModel.find().select("id name profilePicture avatarId emailOrPhone role status").populate("avatarId", "name imageUrl"),
+    UserModel.find({
+      isDeleted: { $ne: true },
+      status: { $nin: [USER_STATUS.DELETED] },
+    })
+      .select("id name profilePicture avatarId emailOrPhone role status createdAt updatedAt")
+      .populate("avatarId", "name imageUrl")
+      .lean(),
     query
   )
     .search(["name", "emailOrPhone"])
@@ -52,10 +58,7 @@ const getAllUsers = async (query: Record<string, unknown>) => {
     .fields();
   const users = await userQuery.modelQuery;
   const meta = await userQuery.countTotal();
-  if (!users || users.length === 0) {
-    throw new AppError(httpStatus.NOT_FOUND, "Users not found");
-  }
-  return { users, meta };
+  return { users: users || [], meta };
 };
 
 /**
