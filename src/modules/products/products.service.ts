@@ -5,9 +5,13 @@ import { CartModel } from "../cart/cart.model";
 import { FlashSaleModel } from "../flash-sale/flash-sale.model";
 import { OrderModel } from "../order/order.model";
 import { ReviewModel } from "../review/review.model";
+import { PRODUCT_REVIEWS_POPULATE, syncProductReviewIds } from "../review/review.service";
 import { WishlistModel } from "../wishlist/wishlist.model";
 import { TProduct } from "./products.interface";
 import { ProductModel } from "./products.model";
+
+const PRODUCT_SEARCH_FIELDS = ["name", "description", "brand", "sku", "tags"];
+const PRODUCT_SEARCH_ARRAY_FIELDS = ["tags"];
 
 /**
  * Create a new product
@@ -41,8 +45,24 @@ const createProductService = async (productData: TProduct) => {
  * @returns The product with the specified ID
  */
 const getProductByIdService = async (id: string) => {
-    return await ProductModel.findById(id);
+    const product = await ProductModel.findById(id);
+    if (!product) {
+        return null;
+    }
+
+    if (!product.reviews?.length) {
+        const reviewCount = await ReviewModel.countDocuments({ productId: id });
+        if (reviewCount > 0) {
+            await syncProductReviewIds(id);
+        }
+    }
+
+    return ProductModel.findById(id).populate(PRODUCT_REVIEWS_POPULATE);
 };
+
+const withPopulatedReviews = <T extends { populate: (arg: typeof PRODUCT_REVIEWS_POPULATE) => T }>(
+    query: T
+) => query.populate(PRODUCT_REVIEWS_POPULATE);
 
 /**
  * Get all products
@@ -53,12 +73,12 @@ const getProductByIdService = async (id: string) => {
 const getAllProductsService = async (query: Record<string, unknown>) => {
 
     const productQuery = new QueryBuilder(ProductModel.find({}), query)
-        .search(["name", "description", "brand", "sku", "tags"])
+        .search(PRODUCT_SEARCH_FIELDS, PRODUCT_SEARCH_ARRAY_FIELDS)
         .filter()
         .sort()
         .paginate()
         .fields();
-    const products = await productQuery.modelQuery;
+    const products = await withPopulatedReviews(productQuery.modelQuery);
     const meta = await productQuery.countTotal();
     return { products, meta };
 };
@@ -83,13 +103,13 @@ const getProductsByTagService = async (tags: string, query: Record<string, unkno
         }),
         query
     )
-        .search(["name", "description", "brand", "sku"])
+        .search(PRODUCT_SEARCH_FIELDS, PRODUCT_SEARCH_ARRAY_FIELDS)
         .filter()
         .sort()
         .paginate()
         .fields();
 
-    const products = await productQuery.modelQuery;
+    const products = await withPopulatedReviews(productQuery.modelQuery);
     const meta = await productQuery.countTotal();
 
     return { products, meta };
@@ -102,12 +122,12 @@ const getProductsByTagService = async (tags: string, query: Record<string, unkno
  */
 const getAllProductsByCategoryIdService = async (categoryId: string, query: Record<string, unknown> = {}) => {
     const productQuery = new QueryBuilder(ProductModel.find({ categoryId }), query)
-        .search(["name", "description", "brand", "sku"])
+        .search(PRODUCT_SEARCH_FIELDS, PRODUCT_SEARCH_ARRAY_FIELDS)
         .filter()
         .sort()
         .paginate()
         .fields();
-    const products = await productQuery.modelQuery;
+    const products = await withPopulatedReviews(productQuery.modelQuery);
     const meta = await productQuery.countTotal();
     return { products, meta };
 };
@@ -273,7 +293,7 @@ const deleteProductService = async (id: string) => {
         }
 
         // Remove all reviews for this product
-        const deleteResult = await ReviewModel.deleteMany({ productId: id }).session(session);
+        await ReviewModel.deleteMany({ productId: id }).session(session);
 
 
         // Remove product from all flash sales

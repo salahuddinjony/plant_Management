@@ -28,7 +28,7 @@ const getCategoryByIdService = async (id: string) => {
 
 const getAllCategoriesService = async (query: Record<string, unknown>) => {
     const categoryQuery = new QueryBuilder(CategoryModel.find({}), query)
-        .search(["name", "description"])
+        .search(["title", "description"])
         .filter()
         .sort()
         .paginate()

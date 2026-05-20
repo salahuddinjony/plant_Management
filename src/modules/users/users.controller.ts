@@ -37,10 +37,8 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
     body.profilePicture = url;
     // If uploading a new image, clear avatarId
     body.avatarId = null;
-  } else if (body.avatarId) {
-    // If selecting an avatar, clear profilePicture
-    body.profilePicture = null;
   }
+  // When avatarId is sent, users.service sets profilePicture to the avatar imageUrl
 
   const result = await userService.updateProfile(id, body);
 

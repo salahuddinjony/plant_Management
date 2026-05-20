@@ -81,6 +81,10 @@ const ProductSchema = new Schema<TProduct>(
             min: 0,
             default: 0,
         },
+        reviews: {
+            type: [{ type: Schema.Types.ObjectId, ref: "review" }],
+            default: [],
+        },
     },
     { timestamps: true }
 );

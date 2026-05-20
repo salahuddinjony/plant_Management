@@ -7,6 +7,7 @@ export const FOLDER_NAMES = {
   USER: 'users',
   CATEGORY: 'categories',
   PRODUCT: 'products',
+  REVIEW: 'reviews',
   CAROUSEL: 'carousels',
   FLASHSALE: 'flash-sales',
 

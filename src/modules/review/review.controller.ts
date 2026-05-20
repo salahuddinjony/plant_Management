@@ -7,51 +7,73 @@ import {
     deleteReviewService,
     getReviewsByProductService,
     getReviewsByUserService,
+    parseImagesFromBody,
     publishReviewService,
     reviewServices,
     unpublishReviewService,
+    uploadReviewImages,
+    updateReviewService,
 } from "./review.service";
 
-/**
- * Create Review Controller
- */
+const getUploadedImageFiles = (req: Request) => {
+    if (Array.isArray(req.files)) {
+        return req.files as Express.Multer.File[];
+    }
+    const files = req.files as { images?: Express.Multer.File[] } | undefined;
+    return files?.images ?? [];
+};
+
 export const createReviewController = catchAsync(async (req: Request, res: Response) => {
-    const userId = req.user?.id;
+    const userId = req.user?.id as string;
     const { productId, rating, reviewText } = req.body;
 
-    const review = await createReviewService(userId, productId, rating, reviewText);
+    const uploadedUrls = await uploadReviewImages(getUploadedImageFiles(req));
+    const bodyImages = parseImagesFromBody(req.body.images);
+    const images = [...bodyImages, ...uploadedUrls];
+
+    const { review, product } = await createReviewService(
+        userId,
+        productId,
+        Number(rating),
+        reviewText,
+        images
+    );
 
     sendResponse(res, {
         success: true,
         statusCode: 201,
         message: "Review created successfully",
-        data: review,
+        data: { review, product },
     });
 });
 
-/**
- * update Review Controller
- */
-const updateReviewController = catchAsync(async (req: Request, res: Response) => {
+export const updateReviewController = catchAsync(async (req: Request, res: Response) => {
     const { reviewId } = req.params as { reviewId: string };
-    const userId = req.user?.id;
+    const userId = req.user?.id as string;
     const { rating, reviewText } = req.body;
-    const review = await reviewServices.updateReviewService(
-        reviewId,
-        userId,
-        { rating, reviewText }
-    );
+
+    const uploadedUrls = await uploadReviewImages(getUploadedImageFiles(req));
+    let images: string[] | undefined;
+
+    if (req.body.images !== undefined || uploadedUrls.length > 0) {
+        const bodyImages = parseImagesFromBody(req.body.images);
+        images = [...bodyImages, ...uploadedUrls];
+    }
+
+    const { review, product } = await updateReviewService(reviewId, userId, {
+        ...(rating !== undefined && { rating: Number(rating) }),
+        ...(reviewText !== undefined && { reviewText }),
+        ...(images !== undefined && { images }),
+    });
+
     sendResponse(res, {
         success: true,
         statusCode: 200,
         message: "Review updated successfully",
-        data: review,
+        data: { review, product },
     });
 });
 
-/**
- * Publish Review Controller
- */
 export const publishReviewController = catchAsync(async (req: Request, res: Response) => {
     const { reviewId } = req.params;
 
@@ -92,7 +114,7 @@ export const getReviewsByProductController = catchAsync(async (req: Request, res
 });
 
 export const getReviewsByUserController = catchAsync(async (req: Request, res: Response) => {
-    const userId = req.user?.id;
+    const userId = req.user?.id as string;
 
     const reviews = await getReviewsByUserService(userId);
 
@@ -119,14 +141,16 @@ export const addHelpfulReviewController = catchAsync(async (req: Request, res: R
 
 export const deleteReviewController = catchAsync(async (req: Request, res: Response) => {
     const { reviewId } = req.params as { reviewId: string };
+    const userId = req.user?.id as string;
+    const role = req.user?.role as string;
 
-    const review = await deleteReviewService(reviewId as string);
+    const { review, product } = await deleteReviewService(reviewId, userId, role);
 
     sendResponse(res, {
         success: true,
         statusCode: 200,
         message: "Review deleted successfully",
-        data: review,
+        data: { review, product },
     });
 });
 

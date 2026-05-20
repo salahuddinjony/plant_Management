@@ -9,13 +9,21 @@ class QueryBuilder<T> {
     this.query = query;
   }
 
-  // Search method
-  search(searchableFields: string[]) {
-    if (this?.query?.searchTerm) {
+  // Search method (arrayFields: e.g. ["tags"] for string[] columns)
+  search(searchableFields: string[], arrayFields: string[] = []) {
+    const searchTerm = this?.query?.searchTerm;
+    if (searchTerm) {
+      const term = String(searchTerm).trim();
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
       this.modelQuery = this.modelQuery?.find({
-        $or: searchableFields.map((field) => ({
-          [field]: { $regex: this.query?.searchTerm, $options: "i" },
-        })) as FilterQuery<T>[],
+        $or: searchableFields.map((field) => {
+          if (arrayFields.includes(field)) {
+            // Match any tag in the array (partial, case-insensitive)
+            return { [field]: { $regex: escaped, $options: "i" } };
+          }
+          return { [field]: { $regex: escaped, $options: "i" } };
+        }) as FilterQuery<T>[],
       });
     }
 

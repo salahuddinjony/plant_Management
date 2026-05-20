@@ -69,13 +69,14 @@ const getFlashSaleByIdController = catchAsync(
  */
 const getAllFlashSalesController = catchAsync(
     async (req: Request, res: Response) => {
-        const result = await flashSaleService.getAllFlashSalesService();
+        const result = await flashSaleService.getAllFlashSalesService(req.query);
 
         sendResponse(res, {
             statusCode: httpStatus.OK,
             success: true,
             message: "Flash sales retrieved successfully",
-            data: result,
+            data: result.flashSales,
+            meta: result.meta,
         });
     }
 );
@@ -88,13 +89,14 @@ const getAllFlashSalesController = catchAsync(
  */
 const getActiveFlashSalesController = catchAsync(
     async (req: Request, res: Response) => {
-        const result = await flashSaleService.getActiveFlashSalesService();
+        const result = await flashSaleService.getActiveFlashSalesService(req.query);
 
         sendResponse(res, {
             statusCode: httpStatus.OK,
             success: true,
             message: "Active flash sales retrieved successfully",
-            data: result,
+            data: result.flashSales,
+            meta: result.meta,
         });
     }
 );
@@ -107,13 +109,14 @@ const getActiveFlashSalesController = catchAsync(
  */
 const getFeaturedFlashSalesController = catchAsync(
     async (req: Request, res: Response) => {
-        const result = await flashSaleService.getFeaturedFlashSalesService();
+        const result = await flashSaleService.getFeaturedFlashSalesService(req.query);
 
         sendResponse(res, {
             statusCode: httpStatus.OK,
             success: true,
             message: "Featured flash sales retrieved successfully",
-            data: result,
+            data: result.flashSales,
+            meta: result.meta,
         });
     }
 );

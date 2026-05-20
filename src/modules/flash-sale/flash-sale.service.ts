@@ -1,7 +1,37 @@
+import QueryBuilder from "../../builder/QueryBuilder";
 import { FOLDER_NAMES } from "../../constants/folder.constants";
 import { deleteImage, uploadImage } from "../../utils/imageUpload";
 import { TFlashSale } from "./flash-sale.interface";
 import { FlashSaleModel } from "./flash-sale.model";
+
+const FLASH_SALE_SEARCH_FIELDS = ["title", "description"];
+
+const applyDefaultFlashSaleSort = (
+    query: Record<string, unknown>,
+    modelQuery: ReturnType<typeof FlashSaleModel.find>
+) => {
+    if (!query.sortBy && !query.sort) {
+        return modelQuery.sort({ order: 1, startDate: -1 });
+    }
+    return modelQuery;
+};
+
+const listFlashSales = async (
+    baseFilter: Record<string, unknown>,
+    query: Record<string, unknown> = {}
+) => {
+    const flashSaleQuery = new QueryBuilder(FlashSaleModel.find(baseFilter), query)
+        .search(FLASH_SALE_SEARCH_FIELDS)
+        .filter()
+        .sort()
+        .paginate()
+        .fields();
+
+    const sortedQuery = applyDefaultFlashSaleSort(query, flashSaleQuery.modelQuery);
+    const flashSales = await sortedQuery.populate("productIds");
+    const meta = await flashSaleQuery.countTotal();
+    return { flashSales, meta };
+};
 
 /**
  * Creates a new flash sale.
@@ -33,42 +63,43 @@ const getFlashSaleByIdService = async (id: string) => {
 };
 
 /**
- * Gets all flash sales.
- * @returns All flash sales.
+ * Gets all flash sales (supports searchTerm on title, description).
  */
-const getAllFlashSalesService = async () => {
-    return await FlashSaleModel.find({}).sort({ order: 1, startDate: -1 }).populate("productIds");
+const getAllFlashSalesService = async (query: Record<string, unknown> = {}) => {
+    return listFlashSales({}, query);
 };
 
 /**
  * Gets active flash sales.
  * @returns Active flash sales.
  */
-const getActiveFlashSalesService = async () => {
+const getActiveFlashSalesService = async (query: Record<string, unknown> = {}) => {
     const now = new Date();
-    return await FlashSaleModel.find({
-        isActive: true,
-        startDate: { $lte: now },
-        endDate: { $gte: now },
-    })
-        .sort({ order: 1, startDate: -1 })
-        .populate("productIds");
+    return listFlashSales(
+        {
+            isActive: true,
+            startDate: { $lte: now },
+            endDate: { $gte: now },
+        },
+        query
+    );
 };
 
 /**
  * Gets featured flash sales.
  * @returns Featured flash sales.
  */
-const getFeaturedFlashSalesService = async () => {
+const getFeaturedFlashSalesService = async (query: Record<string, unknown> = {}) => {
     const now = new Date();
-    return await FlashSaleModel.find({
-        isActive: true,
-        featured: true,
-        startDate: { $lte: now },
-        endDate: { $gte: now },
-    })
-        .sort({ order: 1 })
-        .populate("productIds");
+    return listFlashSales(
+        {
+            isActive: true,
+            featured: true,
+            startDate: { $lte: now },
+            endDate: { $gte: now },
+        },
+        query
+    );
 };
 
 /**

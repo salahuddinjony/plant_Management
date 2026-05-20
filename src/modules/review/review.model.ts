@@ -21,6 +21,11 @@ const ReviewSchema = new Schema<TReview>(
         },
         reviewText: {
             type: String,
+            trim: true,
+        },
+        images: {
+            type: [String],
+            default: [],
         },
         isPublished: {
             type: Boolean,
@@ -35,6 +40,7 @@ const ReviewSchema = new Schema<TReview>(
     { timestamps: true }
 );
 
-ReviewSchema.index({ userId: 1, productId: 1 }, { unique: true });
+ReviewSchema.index({ userId: 1, productId: 1 });
+ReviewSchema.index({ productId: 1, createdAt: -1 });
 
 export const ReviewModel = model<TReview>("review", ReviewSchema);

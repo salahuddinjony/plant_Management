@@ -1,53 +1,52 @@
 import { Router } from "express";
 import auth from "../../middlewares/auth";
 import validateRequest from "../../middlewares/validateRequest";
+import { upload } from "../../utils/multer";
 import { reviewController } from "./review.controller";
 import { reviewValidation } from "./review.validation";
 
 const reviewRouter = Router();
 
 /**
- * Create a review
+ * @route POST /reviews
+ * Create review (multipart optional for images)
  */
 reviewRouter.post(
     "/",
     auth(),
+    upload.array("images", 10),
     validateRequest(reviewValidation.createReviewZodSchema),
     reviewController.createReviewController
 );
 
 /**
- * Update a review
+ * @route PATCH /reviews/update/:reviewId
  */
-reviewRouter.patch("/update/:reviewId", auth(), validateRequest(reviewValidation.updateReviewZodSchema), reviewController.updateReviewController);
+reviewRouter.patch(
+    "/update/:reviewId",
+    auth(),
+    upload.array("images", 10),
+    validateRequest(reviewValidation.updateReviewZodSchema),
+    reviewController.updateReviewController
+);
 
 /**
- * Get reviews by product
+ * @route GET /reviews/product/:productId
  */
 reviewRouter.get("/product/:productId", reviewController.getReviewsByProductController);
 
 /**
- * Get my reviews
+ * @route GET /reviews/my
  */
 reviewRouter.get("/my", auth(), reviewController.getReviewsByUserController);
 
-/**
- * Publish review
- */
+/** Legacy: publish / unpublish / helpful (production compatibility) */
 reviewRouter.patch("/:reviewId/publish", auth(), reviewController.publishReviewController);
-
-/**
- * Unpublish review
- */
 reviewRouter.patch("/:reviewId/unpublish", auth(), reviewController.unpublishReviewController);
-
-/**
- * Mark review as helpful
- */
 reviewRouter.patch("/:reviewId/helpful", reviewController.addHelpfulReviewController);
 
-/** 
- * Delete review 
+/**
+ * @route DELETE /reviews/:reviewId
  */
 reviewRouter.delete("/:reviewId", auth(), reviewController.deleteReviewController);
 

@@ -16,6 +16,7 @@ export type TProduct = {
     isFeatured?: boolean;
     ratingAverage?: number;
     ratingCount?: number;
+    reviews?: string[];
     createdAt: Date;
     updatedAt: Date;
 };

@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import QueryBuilder from "../../builder/QueryBuilder";
 import AppError from "../../errors/AppError";
 import { USER_ROLE, USER_STATUS } from "../../constants/status.constants";
+import { AvatarModel } from "../avatar/avatar.model";
 import { UserModel } from "./users.model";
 
 /**
@@ -28,7 +29,19 @@ const getProfile = async (userId: string) => {
  * @returns 
  */
 const updateProfile = async (userId: string, payload: any) => {
-  const user = await UserModel.findByIdAndUpdate(userId, payload, { new: true });
+  if (payload.avatarId) {
+    const avatar = await AvatarModel.findById(payload.avatarId);
+    if (!avatar) {
+      throw new AppError(httpStatus.NOT_FOUND, "Avatar not found");
+    }
+    if (!avatar.isActive) {
+      throw new AppError(httpStatus.BAD_REQUEST, "Avatar is not available");
+    }
+    payload.profilePicture = avatar.imageUrl;
+  }
+
+  const user = await UserModel.findByIdAndUpdate(userId, payload, { new: true })
+    .populate("avatarId", "name imageUrl");
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
