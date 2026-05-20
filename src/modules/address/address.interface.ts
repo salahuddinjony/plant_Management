@@ -1,6 +1,6 @@
 export type TAddress = {
     userId: string;
-    street: string;
+    street?: string;
     city: string;
     postalCode?: string;
     country: string;

@@ -9,7 +9,6 @@ const AddressSchema = new Schema<TAddress>(
         },
         street: {
             type: String,
-            required: true,
             trim: true,
         },
         city: {

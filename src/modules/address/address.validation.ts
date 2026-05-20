@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 const addressBodySchema = z.object({
-    street: z.string().min(3, "Street is required"),
+    street: z
+      .string()
+      .trim()
+      .min(2, "Street must be at least 3 characters")
+      .optional()
+      .or(z.literal("")),
     city: z.string().min(2, "City is required"),
     postalCode: z
       .string()

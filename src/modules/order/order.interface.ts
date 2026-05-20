@@ -9,13 +9,13 @@ export type TOrder = {
         total: number;
     }[];
     shippingAddress: {
-        street: string;
+        street?: string;
         city: string;
         postalCode?: string;
         country: string;
     };
     billingAddress?: {
-        street: string;
+        street?: string;
         city: string;
         postalCode?: string;
         country: string;

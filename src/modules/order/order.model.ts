@@ -41,7 +41,7 @@ const OrderSchema = new Schema<TOrder>(
             },
         ],
         shippingAddress: {
-            street: { type: String, required: true },
+            street: { type: String },
             city: { type: String, required: true },
             postalCode: { type: String },
             country: { type: String, required: true },
