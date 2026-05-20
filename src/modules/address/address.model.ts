@@ -19,7 +19,6 @@ const AddressSchema = new Schema<TAddress>(
         },
         postalCode: {
             type: String,
-            required: true,
             trim: true,
         },
         country: {

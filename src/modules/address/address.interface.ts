@@ -2,7 +2,7 @@ export type TAddress = {
     userId: string;
     street: string;
     city: string;
-    postalCode: string;
+    postalCode?: string;
     country: string;
     phoneNumber?: string;
     label?: string;

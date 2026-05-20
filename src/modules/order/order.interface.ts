@@ -11,13 +11,13 @@ export type TOrder = {
     shippingAddress: {
         street: string;
         city: string;
-        postalCode: string;
+        postalCode?: string;
         country: string;
     };
     billingAddress?: {
         street: string;
         city: string;
-        postalCode: string;
+        postalCode?: string;
         country: string;
     };
     orderStatus: "pending" | "processing" | "shipped" | "delivered" | "cancelled";
