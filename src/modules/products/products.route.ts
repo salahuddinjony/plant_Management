@@ -15,10 +15,7 @@ const router = express.Router();
  */
 router.post(
     "/",
-    upload.fields([
-        { name: "image", maxCount: 1 },
-        { name: "images", maxCount: 10 }
-    ]),
+    upload.fields([{ name: "images", maxCount: 10 }]),
     auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
     validateRequest(productValidation.createProductZodSchema),
     productController.createProductController
@@ -31,10 +28,7 @@ router.post(
  */
 router.patch(
     "/:id",
-    upload.fields([
-        { name: "image", maxCount: 1 },
-        { name: "images", maxCount: 10 }
-    ]),
+    upload.fields([{ name: "images", maxCount: 10 }]),
     auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
     validateRequest(productValidation.updateProductZodSchema),
     productController.updateProductController

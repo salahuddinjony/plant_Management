@@ -8,10 +8,6 @@ export const addItemToCartService = async (userId: string, productId: string, qu
         throw new AppError(404, "Product not found");
     }
 
-    if (!product.quantity || product.quantity < quantity) {
-        throw new AppError(400, "Insufficient quantity available");
-    }
-
     let cart = await CartModel.findOne({ userId });
     if (!cart) {
         cart = await CartModel.create({
@@ -21,6 +17,14 @@ export const addItemToCartService = async (userId: string, productId: string, qu
     }
 
     const existingItem = cart.items.find((item) => item.productId === productId);
+    const inCart = existingItem?.quantity ?? 0;
+    const requestedTotal = inCart + quantity;
+    const stock = product.available ?? 0;
+
+    if (stock < requestedTotal) {
+        throw new AppError(400, "Insufficient stock available");
+    }
+
     if (existingItem) {
         existingItem.quantity += quantity;
         existingItem.total = existingItem.quantity * existingItem.price;
@@ -67,9 +71,9 @@ export const updateCartItemQuantityService = async (userId: string, productId: s
         throw new AppError(404, "Product not found");
     }
 
-    const qty = product.quantity;
-    if (!qty || qty < quantity) {
-        throw new AppError(400, "Insufficient quantity available");
+    const stock = product.available ?? 0;
+    if (stock < quantity) {
+        throw new AppError(400, "Insufficient stock available");
     }
 
     const cart = await CartModel.findOne({ userId });

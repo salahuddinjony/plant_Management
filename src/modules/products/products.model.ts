@@ -18,12 +18,13 @@ const ProductSchema = new Schema<TProduct>(
         description: {
             type: String,
         },
-        image: {
-            type: String,
-            required: true,
-        },
         images: {
             type: [String],
+            required: true,
+            validate: {
+                validator: (v: string[]) => Array.isArray(v) && v.length > 0,
+                message: "At least one product image is required",
+            },
         },
         price: {
             type: Number,
@@ -36,7 +37,12 @@ const ProductSchema = new Schema<TProduct>(
             max: 100,
             default: 0,
         },
-        quantity: {
+        available: {
+            type: Number,
+            min: 0,
+            default: 0,
+        },
+        sold: {
             type: Number,
             min: 0,
             default: 0,

@@ -307,7 +307,19 @@ Create a new product (Admin)
 
 - **Auth**: Required (Admin/Super Admin)
 - **Content-Type**: `multipart/form-data`
-- **Body**:
+- **Body** (admin sends `quantity` for initial stock; do **not** send `available` or `sold`):
+
+  | Field | Required | Notes |
+  |-------|----------|--------|
+  | `name` | Yes | min 2 chars |
+  | `price` | Yes | number ≥ 0 |
+  | `images` | **Yes** | 1–10 image files (multipart field name must be `images`) |
+  | `quantity` | **Yes** | Initial stock; server sets `available = quantity`, `sold = 0` |
+  | `description`, `discount`, `isAvailable`, `isFeatured`, `sku`, `brand`, `categoryId`, `tags`, `deliveryTime`, `courierCharge` | No | same as before |
+
+  Do **not** send an `image` field. All URLs are returned in `images` only.
+
+  Example form fields:
 
   ```json
   {
@@ -321,15 +333,36 @@ Create a new product (Admin)
     "sku": "ROSE-001",
     "brand": "Garden Paradise",
     "categoryId": "category_id",
-    "tags": ["rose", "flower", "outdoor"],
+    "tags": "rose,flower,outdoor",
     "deliveryTime": "2-3 business days",
-    "courierCharge": 50,
-    "image": "file (required)",
-    "images": ["file1", "file2", "..."] (optional)
+    "courierCharge": 50
   }
   ```
 
-- **Response**: Created product object with Cloudinary image URLs
+- **Response** (201):
+
+  ```json
+  {
+    "success": true,
+    "message": "Product created successfully",
+    "data": {
+      "_id": "...",
+      "name": "Rose Plant",
+      "price": 250,
+      "available": 50,
+      "sold": 0,
+      "isAvailable": true,
+      "images": [
+        "https://res.cloudinary.com/.../img1.png",
+        "https://res.cloudinary.com/.../img2.png"
+      ],
+      "createdAt": "...",
+      "updatedAt": "..."
+    }
+  }
+  ```
+
+  Stock fields: `available` and `sold` are always returned. **`quantity`** is included in responses only for **admin/super-admin** tokens (`quantity` equals `available`). **User** tokens do not receive `quantity`. `quantity` is not stored in the database.
 
 ### GET `/products`
 
@@ -425,9 +458,53 @@ Update a product (Admin)
 - **Auth**: Required (Admin/Super Admin)
 - **Content-Type**: `multipart/form-data`
 - **Params**: `id` - Product ID
-- **Body**: Partial product fields (same as create, all optional)
-- **Response**: Updated product object
+- **Body** (all optional):
+
+  | Field | Effect |
+  |-------|--------|
+  | `quantity` | Sets `available` to this value (`available = quantity`) |
+  | `sold` | Sets `sold` directly (manual correction) |
+  | Other fields | Same as create (`name`, `price`, `isAvailable`, etc.) |
+
+  Do **not** send `available` in the body; use `quantity` to set stock.
+
+  Examples:
+
+  ```json
+  { "quantity": 80 }
+  { "sold": 12 }
+  { "quantity": 100, "sold": 5, "price": 300 }
+  ```
+
+- **Response** (200):
+
+  ```json
+  {
+    "success": true,
+    "message": "Product updated successfully",
+    "data": {
+      "_id": "...",
+      "name": "Rose Plant",
+      "available": 80,
+      "sold": 12,
+      "price": 300,
+      "isAvailable": true,
+      "image": "https://res.cloudinary.com/..."
+    }
+  }
+  ```
+
 - **Note**: Automatically handles old image deletion when updating
+
+#### Inventory (orders, automatic)
+
+| Event | `sold` | `available` |
+|-------|--------|-------------|
+| Order placed (`pending`) | `+qty` | `−qty` |
+| Order `cancelled` | `−qty` | `+qty` |
+| `delivered` | no change | no change |
+
+Clients read `available` (stock) and `sold` on product list/detail. Cart still uses body field `quantity` for how many units to add to the cart.
 
 ### DELETE `/products/:id`
 

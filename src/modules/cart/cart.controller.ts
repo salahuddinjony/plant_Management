@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
+import { formatCartResponse } from "../products/product-response.util";
 import {
     addItemToCartService,
     clearCartService,
@@ -19,7 +20,7 @@ export const addItemToCart = catchAsync(async (req: Request, res: Response) => {
         success: true,
         statusCode: 200,
         message: "Item added to cart successfully",
-        data: cart,
+        data: formatCartResponse(cart, req.user?.role),
     });
 });
 
@@ -33,7 +34,7 @@ export const removeItemFromCart = catchAsync(async (req: Request, res: Response)
         success: true,
         statusCode: 200,
         message: "Item removed from cart successfully",
-        data: cart,
+        data: formatCartResponse(cart, req.user?.role),
     });
 });
 
@@ -48,7 +49,7 @@ export const updateCartItemQuantity = catchAsync(async (req: Request, res: Respo
         success: true,
         statusCode: 200,
         message: "Cart updated successfully",
-        data: cart,
+        data: formatCartResponse(cart, req.user?.role),
     });
 });
 
@@ -61,7 +62,7 @@ export const getCart = catchAsync(async (req: Request, res: Response) => {
         success: true,
         statusCode: 200,
         message: "Cart retrieved successfully",
-        data: cart,
+        data: formatCartResponse(cart, req.user?.role),
     });
 });
 
@@ -74,7 +75,7 @@ export const clearCart = catchAsync(async (req: Request, res: Response) => {
         success: true,
         statusCode: 200,
         message: "Cart cleared successfully",
-        data: cart,
+        data: formatCartResponse(cart, req.user?.role),
     });
 });
 

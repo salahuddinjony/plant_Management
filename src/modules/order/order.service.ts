@@ -4,7 +4,23 @@ import AppError from "../../errors/AppError";
 import { AddressModel } from "../address/address.model";
 import { CartModel } from "../cart/cart.model";
 import { CouponModel } from "../coupon/coupon.model";
+import {
+    applyOrderInventory,
+    assertSufficientStock,
+    revertOrderInventory,
+} from "../products/product-inventory.util";
 import { OrderModel } from "./order.model";
+
+/** Resolve product id from a cart line (populated object, raw string, or missing). */
+const resolveCartItemProductId = (item: { productId?: unknown }): string | null => {
+    const pid = item?.productId;
+    if (pid == null) return null;
+    if (typeof pid === "string") return pid;
+    if (typeof pid === "object" && pid !== null && "_id" in pid) {
+        return String((pid as { _id: unknown })._id);
+    }
+    return null;
+};
 
 /**
  * Create order (By User)
@@ -42,18 +58,42 @@ export const createOrderService = async (
             throw new AppError(400, "Cart is empty");
         }
 
+        // Drop cart lines whose product was deleted (populate leaves productId null)
+        const validCartItems = cart.items.filter((item) => resolveCartItemProductId(item) !== null);
+        if (validCartItems.length < cart.items.length) {
+            cart.items = validCartItems as typeof cart.items;
+            cart.subtotal = cart.items.reduce((sum, item) => sum + item.total, 0);
+            cart.total = cart.subtotal;
+            await cart.save({ session });
+        }
+
+        if (cart.items.length === 0) {
+            throw new AppError(400, "Cart is empty");
+        }
+
         const shippingAddress = await AddressModel.findById(shippingAddressId).session(session);
         if (!shippingAddress || shippingAddress.userId.toString() !== userId) {
             throw new AppError(400, "Invalid shipping address");
         }
 
         // Filter cart items to only include selected products
-        const selectedItems = cart.items.filter((item: any) =>
-            selectedProductIds.includes(item.productId._id.toString())
-        );
+        const selectedItems = cart.items.filter((item) => {
+            const productId = resolveCartItemProductId(item);
+            return productId != null && selectedProductIds.includes(productId);
+        });
 
         if (selectedItems.length === 0) {
             throw new AppError(400, "No valid products selected for order");
+        }
+
+        const missingProduct = selectedItems.some(
+            (item) => typeof item.productId !== "object" || item.productId == null
+        );
+        if (missingProduct) {
+            throw new AppError(
+                400,
+                "One or more products in your cart are no longer available. Please remove them and try again."
+            );
         }
 
         // Calculate subtotal from selected items only
@@ -131,7 +171,11 @@ export const createOrderService = async (
             paymentStatus: isCashOnDelivery ? "pending" : "completed",
         };
 
+        await assertSufficientStock(items, session);
+
         const [order] = await OrderModel.create([orderData], { session });
+
+        await applyOrderInventory(items, session);
 
         // Clear cart after successful order creation
         await CartModel.deleteOne({ userId }, { session });
@@ -201,23 +245,43 @@ export const getAllOrdersService = async (query: Record<string, unknown>) => {
  * @returns Order
  */
 export const updateOrderStatusService = async (orderId: string, status: string) => {
-    console.log(`Updating order ${orderId} to status ${status}`);
     const validStatuses = ["pending", "processing", "shipped", "delivered", "cancelled"];
     if (!validStatuses.includes(status)) {
         throw new AppError(400, "Invalid status");
     }
 
-    const order = await OrderModel.findOneAndUpdate(
-        { orderId },
-        { orderStatus: status, updatedAt: new Date() },
-        { new: true }
-    );
+    const session = await OrderModel.startSession();
+    session.startTransaction();
 
-    if (!order) {
-        throw new AppError(404, "Order not found");
+    try {
+        const order = await OrderModel.findOne({ orderId }).session(session);
+        if (!order) {
+            throw new AppError(404, "Order not found");
+        }
+
+        const oldStatus = order.orderStatus;
+
+        if (oldStatus !== "cancelled" && status === "cancelled") {
+            await revertOrderInventory(order.items, session);
+        }
+
+        if (oldStatus === "cancelled" && status !== "cancelled") {
+            await assertSufficientStock(order.items, session);
+            await applyOrderInventory(order.items, session);
+        }
+
+        order.orderStatus = status as typeof order.orderStatus;
+        order.updatedAt = new Date();
+        await order.save({ session });
+
+        await session.commitTransaction();
+        return order;
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
     }
-
-    return order;
 };
 
 /**
@@ -227,36 +291,45 @@ export const updateOrderStatusService = async (orderId: string, status: string) 
  * @returns Order
  */
 export const cancelOrderService = async (orderId: string, userId: string) => {
-    const order = await OrderModel.findOne({ orderId, userId });
+    const session = await OrderModel.startSession();
+    session.startTransaction();
 
-    if (!order) {
-        throw new AppError(404, "Order not found");
+    try {
+        const order = await OrderModel.findOne({ orderId, userId }).session(session);
+
+        if (!order) {
+            throw new AppError(404, "Order not found");
+        }
+
+        if (order.orderStatus === "cancelled") {
+            throw new AppError(400, "Order is already cancelled");
+        }
+
+        if (order.orderStatus === "delivered") {
+            throw new AppError(400, "Cannot cancel a delivered order");
+        }
+
+        const timeDifferenceInHours =
+            (Date.now() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60);
+
+        if (timeDifferenceInHours > 6) {
+            throw new AppError(400, "Order can only be cancelled within 6 hours of creation");
+        }
+
+        await revertOrderInventory(order.items, session);
+
+        order.orderStatus = "cancelled";
+        order.updatedAt = new Date();
+        await order.save({ session });
+
+        await session.commitTransaction();
+        return order;
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
     }
-
-    // Check if order is already cancelled or delivered
-    if (order.orderStatus === "cancelled") {
-        throw new AppError(400, "Order is already cancelled");
-    }
-
-    if (order.orderStatus === "delivered") {
-        throw new AppError(400, "Cannot cancel a delivered order");
-    }
-
-    // Check if order is within 6 hours of creation
-    const currentTime = new Date();
-    const orderCreationTime = new Date(order.createdAt);
-    const timeDifferenceInHours = (currentTime.getTime() - orderCreationTime.getTime()) / (1000 * 60 * 60);
-
-    if (timeDifferenceInHours > 6) {
-        throw new AppError(400, "Order can only be cancelled within 6 hours of creation");
-    }
-
-    // Update order status to cancelled
-    order.orderStatus = "cancelled";
-    order.updatedAt = new Date();
-    await order.save();
-
-    return order;
 };
 
 export const orderService = {

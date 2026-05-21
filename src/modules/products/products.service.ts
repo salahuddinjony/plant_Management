@@ -7,6 +7,7 @@ import { OrderModel } from "../order/order.model";
 import { ReviewModel } from "../review/review.model";
 import { PRODUCT_REVIEWS_POPULATE, syncProductReviewIds } from "../review/review.service";
 import { WishlistModel } from "../wishlist/wishlist.model";
+import { collectProductImageUrls, uploadProductImageFiles } from "./product-images.util";
 import { TProduct } from "./products.interface";
 import { ProductModel } from "./products.model";
 
@@ -18,20 +19,38 @@ const PRODUCT_SEARCH_ARRAY_FIELDS = ["tags"];
  * @param productData - The product data to create
  * @returns The created product
  */
-const createProductService = async (productData: TProduct) => {
+type TProductCreateInput = TProduct & { quantity?: number };
+type TProductUpdateInput = Partial<TProduct> & {
+    quantity?: number;
+    file?: Express.Multer.File;
+    files?: { [fieldname: string]: Express.Multer.File[] };
+};
+
+const createProductService = async (productData: TProductCreateInput) => {
     // tags normalization to lowercase and coma separation
     if (productData.tags && !Array.isArray(productData.tags)) {
         productData.tags = (productData.tags as string)
             .split(",")
             .map((tag: string) => tag.trim().toLowerCase());
     }
-    const result = await ProductModel.create(productData);
 
-    if (!result && productData.image) {
-        try {
-            await deleteImage(productData.image);
-        } catch (error) {
-            console.error("Failed to cleanup product image:", error);
+    const qty = productData.quantity !== undefined ? Number(productData.quantity) : 0;
+    const payload: TProduct = {
+        ...productData,
+        available: qty,
+        sold: 0,
+    };
+    delete (payload as TProductCreateInput).quantity;
+
+    const result = await ProductModel.create(payload);
+
+    if (!result && productData.images?.length) {
+        for (const url of productData.images) {
+            try {
+                await deleteImage(url);
+            } catch (error) {
+                console.error("Failed to cleanup product image:", error);
+            }
         }
         throw new Error("Failed to create product");
     }
@@ -138,13 +157,7 @@ const getAllProductsByCategoryIdService = async (categoryId: string, query: Reco
  * @param productData - The product data to update
  * @returns The updated product
  */
-const updateProductService = async (
-    id: string,
-    productData: Partial<TProduct> & {
-        file?: Express.Multer.File;
-        files?: { [fieldname: string]: Express.Multer.File[] };
-    }
-) => {
+const updateProductService = async (id: string, productData: TProductUpdateInput) => {
     const session = await ProductModel.startSession();
     session.startTransaction();
 
@@ -155,61 +168,40 @@ const updateProductService = async (
             throw new Error("Product not found");
         }
 
-        let imageUrl = existingProduct.image;
-        let imagesUrls = existingProduct.images || [];
+        let imagesUrls = collectProductImageUrls(existingProduct);
+        const replaceImages = Boolean(productData.files?.images?.length);
 
-        // Handle multiple file uploads
-        if (productData.files) {
-            const files = productData.files;
-
-            // Handle main image update
-            if (files.image && files.image[0]) {
-                if (existingProduct.image) {
-                    try {
-                        await deleteImage(existingProduct.image);
-                    } catch (error) {
-                        console.error("Failed to delete old product image:", error);
-                    }
+        if (replaceImages && productData.files?.images) {
+            for (const oldUrl of imagesUrls) {
+                try {
+                    await deleteImage(oldUrl);
+                } catch (error) {
+                    console.error("Failed to delete old product image:", error);
                 }
-
-                const uploadResult = await uploadImage(
-                    files.image[0].buffer,
-                    FOLDER_NAMES.PRODUCT
-                );
-                imageUrl = uploadResult.url;
             }
 
-            // Handle additional images
-            if (files.images) {
-                // Delete old additional images if any
-                if (existingProduct.images && existingProduct.images.length > 0) {
-                    for (const oldImage of existingProduct.images) {
-                        try {
-                            await deleteImage(oldImage);
-                        } catch (error) {
-                            console.error("Failed to delete old additional image:", error);
-                        }
-                    }
-                }
-
-                // Upload new additional images
-                const newImagesUrls: string[] = [];
-                for (const file of files.images) {
-                    const uploadResult = await uploadImage(
-                        file.buffer,
-                        FOLDER_NAMES.PRODUCT
-                    );
-                    newImagesUrls.push(uploadResult.url);
-                }
-                imagesUrls = newImagesUrls;
-            }
-
+            imagesUrls = await uploadProductImageFiles(productData.files.images);
             delete productData.files;
+        }
+
+        const { quantity, sold, ...rest } = productData;
+        const updatePayload: Record<string, unknown> = { ...rest };
+
+        if (quantity !== undefined) {
+            updatePayload.available = Number(quantity);
+        }
+        if (sold !== undefined) {
+            updatePayload.sold = Number(sold);
+        }
+
+        if (replaceImages) {
+            updatePayload.images = imagesUrls;
+            updatePayload.$unset = { image: "" };
         }
 
         const updatedProduct = await ProductModel.findByIdAndUpdate(
             id,
-            { ...productData, image: imageUrl, images: imagesUrls },
+            updatePayload,
             { new: true, session }
         );
 
@@ -315,28 +307,12 @@ const deleteProductService = async (id: string) => {
         // Commit transaction before deleting images (external operation)
         await session.commitTransaction();
 
-        // Delete images from Cloudinary (after transaction commit)
         if (result) {
-            // Delete main image
-            if (product.image) {
+            for (const imageUrl of collectProductImageUrls(product)) {
                 try {
-                    const deleteResult = await deleteImage(product.image);
-                    if (!deleteResult || deleteResult.result !== "ok") {
-                        console.error("Failed to delete main product image from Cloudinary");
-                    }
+                    await deleteImage(imageUrl);
                 } catch (error) {
-                    console.error("Failed to delete main product image:", error);
-                }
-            }
-
-            // Delete additional images
-            if (product.images && product.images.length > 0) {
-                for (const imageUrl of product.images) {
-                    try {
-                        await deleteImage(imageUrl);
-                    } catch (error) {
-                        console.error("Failed to delete additional product image:", error);
-                    }
+                    console.error("Failed to delete product image:", error);
                 }
             }
         }

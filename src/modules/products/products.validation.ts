@@ -1,11 +1,10 @@
 import { z } from "zod";
 
-const productBodySchema = z.object({
+const productFieldsSchema = z.object({
     name: z.string().min(2, "Name must be at least 2 characters long"),
     description: z.string().optional(),
     price: z.coerce.number().min(0, "Price must be a positive number"),
     discount: z.coerce.number().min(0).max(100).optional(),
-    quantity: z.coerce.number().min(0).optional(),
     isAvailable: z.coerce.boolean().default(true),
     isFeatured: z.coerce.boolean().optional(),
     sku: z.string().optional(),
@@ -17,12 +16,23 @@ const productBodySchema = z.object({
     images: z.union([z.array(z.string().url()), z.string().url()]).optional(),
 });
 
+const createProductBodySchema = productFieldsSchema.extend({
+    quantity: z.coerce.number().min(1, "Quantity is required and must be 1 or greater"),
+});
+
+const updateProductBodySchema = productFieldsSchema
+    .extend({
+        quantity: z.coerce.number().min(0).optional(),
+        sold: z.coerce.number().min(0).optional(),
+    })
+    .partial();
+
 export const createProductZodSchema = z.object({
-    body: productBodySchema,
+    body: createProductBodySchema,
 });
 
 export const updateProductZodSchema = z.object({
-    body: productBodySchema.partial(),
+    body: updateProductBodySchema,
 });
 
 export const productValidation = {

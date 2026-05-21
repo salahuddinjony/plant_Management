@@ -1,11 +1,11 @@
 export type TProduct = {
     name: string;
     description?: string;
-    image: string;
-    images?: string[];
+    images: string[];
     price: number;
     discount?: number;
-    quantity?: number;
+    available?: number;
+    sold?: number;
     sku?: string;
     brand?: string;
     categoryId?: string;

@@ -1,10 +1,11 @@
 import { Request, Response } from "express";
 import httpStatus from "http-status";
-import { FOLDER_NAMES } from "../../constants/folder.constants";
+import { USER_ROLE } from "../../constants/status.constants";
 import catchAsync from "../../utils/catchAsync";
-import { uploadImage } from "../../utils/imageUpload";
 import sendResponse from "../../utils/sendResponse";
+import { uploadProductImageFiles } from "./product-images.util";
 import { TProduct } from "./products.interface";
+import { formatProductResponse, formatProductsResponse } from "./product-response.util";
 import { productService } from "./products.service";
 
 /**
@@ -14,43 +15,11 @@ import { productService } from "./products.service";
  */
 const createProductController = catchAsync(async (req, res) => {
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-
-    if (!files || (!files.image && !files.images)) {
-        throw new Error("At least one image is required");
-    }
-
-    let mainImageUrl = "";
-    const additionalImageUrls: string[] = [];
-
-    // Upload main image
-    if (files.image && files.image[0]) {
-        const uploadResult = await uploadImage(
-            files.image[0].buffer,
-            FOLDER_NAMES.PRODUCT
-        );
-        mainImageUrl = uploadResult.url;
-    }
-
-    // Upload additional images
-    if (files.images) {
-        for (const file of files.images) {
-            const uploadResult = await uploadImage(
-                file.buffer,
-                FOLDER_NAMES.PRODUCT
-            );
-            additionalImageUrls.push(uploadResult.url);
-        }
-    }
-
-    // If no main image but has additional images, use first additional image as main
-    if (!mainImageUrl && additionalImageUrls.length > 0) {
-        mainImageUrl = additionalImageUrls.shift()!;
-    }
+    const imageUrls = await uploadProductImageFiles(files?.images);
 
     const productData = {
         ...req.body,
-        image: mainImageUrl,
-        ...(additionalImageUrls.length > 0 && { images: additionalImageUrls }),
+        images: imageUrls,
     } as TProduct;
 
     const result = await productService.createProductService(productData);
@@ -58,7 +27,7 @@ const createProductController = catchAsync(async (req, res) => {
         statusCode: httpStatus.CREATED,
         success: true,
         message: "Product created successfully",
-        data: result,
+        data: formatProductResponse(result, USER_ROLE.ADMIN),
     });
 });
 
@@ -76,7 +45,7 @@ const getProductByIdController = catchAsync(
             statusCode: httpStatus.OK,
             success: true,
             message: "Product retrieved successfully",
-            data: result,
+            data: formatProductResponse(result, req.user?.role),
         });
     }
 );
@@ -94,7 +63,7 @@ const getAllProductsController = catchAsync(
             statusCode: httpStatus.OK,
             success: true,
             message: "Products retrieved successfully",
-            data: result.products,
+            data: formatProductsResponse(result.products, req.user?.role),
             meta: result.meta,
         });
     }
@@ -114,7 +83,7 @@ const getProductsByTagController = catchAsync(
             statusCode: httpStatus.OK,
             success: true,
             message: "Products retrieved successfully",
-            data: result.products,
+            data: formatProductsResponse(result.products, req.user?.role),
             meta: result.meta,
         });
     }
@@ -134,7 +103,7 @@ const getAllProductsByCategoryIdController = catchAsync(
             statusCode: httpStatus.OK,
             success: true,
             message: "Products retrieved successfully",
-            data: result.products,
+            data: formatProductsResponse(result.products, req.user?.role),
             meta: result.meta,
         });
     }
@@ -148,7 +117,7 @@ const getAllProductsByCategoryIdController = catchAsync(
 const updateProductController = catchAsync(
     async (req: Request, res: Response) => {
         const { id } = req.params as { id: string };
-        const { name, description, price, isAvailable, discount, quantity, isFeatured, sku, brand, categoryId, tags, deliveryTime, courierCharge } = req.body;
+        const { name, description, price, isAvailable, discount, quantity, sold, isFeatured, sku, brand, categoryId, tags, deliveryTime, courierCharge } = req.body;
 
         const updateData: Partial<TProduct> & {
             file?: Express.Multer.File;
@@ -159,6 +128,7 @@ const updateProductController = catchAsync(
             ...(price !== undefined && { price: Number(price) }),
             ...(discount !== undefined && { discount: Number(discount) }),
             ...(quantity !== undefined && { quantity: Number(quantity) }),
+            ...(sold !== undefined && { sold: Number(sold) }),
             ...(isAvailable !== undefined && { isAvailable: isAvailable === "true" || isAvailable === true }),
             ...(isFeatured !== undefined && { isFeatured: isFeatured === "true" || isFeatured === true }),
             ...(sku && { sku }),
@@ -180,7 +150,7 @@ const updateProductController = catchAsync(
             statusCode: httpStatus.OK,
             success: true,
             message: "Product updated successfully",
-            data: result,
+            data: formatProductResponse(result, USER_ROLE.ADMIN),
         });
     }
 );
@@ -199,7 +169,7 @@ const deleteProductController = catchAsync(
             statusCode: httpStatus.OK,
             success: true,
             message: "Product deleted successfully",
-            data: result,
+            data: formatProductResponse(result, USER_ROLE.ADMIN),
         });
     }
 );
