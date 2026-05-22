@@ -1,5 +1,6 @@
 import config from "../config";
 import { USER_ROLE, USER_STATUS } from "../constants/status.constants";
+import { OrderSettingsModel } from "../modules/order-settings/order-settings.model";
 import { UserModel } from "../modules/users/users.model";
 
 const superUser = {
@@ -23,4 +24,29 @@ const seedSuperAdmin = async () => {
     }
 };
 
-export default seedSuperAdmin;
+const seedOrderSettings = async () => {
+    const hasActive = await OrderSettingsModel.exists({ isActive: true });
+    if (!hasActive) {
+        await OrderSettingsModel.create({
+            isActive: true,
+            tax: {
+                isActive: false,
+                taxType: "percentage",
+                taxValue: 0,
+            },
+            shipping: {
+                isActive: false,
+                shippingType: "free_above_threshold",
+                shippingFlatAmount: 0,
+                freeShippingMinSubtotal: 0,
+            },
+        });
+    }
+};
+
+const seedDatabase = async () => {
+    await seedSuperAdmin();
+    await seedOrderSettings();
+};
+
+export default seedDatabase;

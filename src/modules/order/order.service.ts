@@ -1,14 +1,25 @@
 import QueryBuilder from "../../builder/QueryBuilder";
 import { USER_ROLE } from "../../constants/status.constants";
 import AppError from "../../errors/AppError";
+import { DEFAULT_ADDRESS_LABEL } from "../address/address.constants";
 import { AddressModel } from "../address/address.model";
 import { CartModel } from "../cart/cart.model";
 import { CouponModel } from "../coupon/coupon.model";
+import { OrderSettingsModel } from "../order-settings/order-settings.model";
+import { calculateOrderCharges } from "../order-settings/order-settings.utils";
 import {
     applyOrderInventory,
     assertSufficientStock,
     revertOrderInventory,
 } from "../products/product-inventory.util";
+import {
+    getDiscountedUnitPrice,
+    getLineTotal,
+    getProductLineDiscount,
+    roundMoney,
+} from "../products/product-price.util";
+import { TransactionModel } from "../transaction/transaction.model";
+import { TOrderPaymentStatus } from "./order.constants";
 import { OrderModel } from "./order.model";
 
 /** Resolve product id from a cart line (populated object, raw string, or missing). */
@@ -30,6 +41,7 @@ const resolveCartItemProductId = (item: { productId?: unknown }): string | null 
  * @param discountCode Discount code
  * @param paymentMethod Payment method
  * @param transactionId Transaction ID (required for non-cash payments)
+ * @param notes Optional delivery/order notes
  * @returns Order
  */
 export const createOrderService = async (
@@ -38,7 +50,8 @@ export const createOrderService = async (
     selectedProductIds: string[],
     discountCode?: string,
     paymentMethod?: string,
-    transactionId?: string
+    transactionId?: string,
+    notes?: string
 ) => {
     // Validate transaction ID requirement for non-cash payments
     const cashOnDeliveryVariants = ["cash", "cod", "cash on delivery", "cash_on_delivery"];
@@ -53,7 +66,12 @@ export const createOrderService = async (
     session.startTransaction();
 
     try {
-        const cart = await CartModel.findOne({ userId }).populate("items.productId").session(session);
+        const cart = await CartModel.findOne({ userId })
+            .populate({
+                path: "items.productId",
+                match: { isAvailable: true },
+            })
+            .session(session);
         if (!cart || cart.items.length === 0) {
             throw new AppError(400, "Cart is empty");
         }
@@ -76,6 +94,20 @@ export const createOrderService = async (
             throw new AppError(400, "Invalid shipping address");
         }
 
+        const phoneNumber = shippingAddress.phoneNumber?.trim();
+        if (!phoneNumber) {
+            throw new AppError(400, "Shipping address must include a phone number");
+        }
+
+        const addressSnapshot = {
+            street: shippingAddress.street,
+            city: shippingAddress.city,
+            postalCode: shippingAddress.postalCode,
+            country: shippingAddress.country,
+            phoneNumber,
+            label: shippingAddress.label ?? DEFAULT_ADDRESS_LABEL,
+        };
+
         // Filter cart items to only include selected products
         const selectedItems = cart.items.filter((item) => {
             const productId = resolveCartItemProductId(item);
@@ -96,10 +128,38 @@ export const createOrderService = async (
             );
         }
 
-        // Calculate subtotal from selected items only
-        const subtotal = selectedItems.reduce((sum: number, item: any) => sum + item.total, 0);
+        // Line prices use product discount % at checkout time
+        const pricedLines = selectedItems.map((item: any) => {
+            const product = item.productId;
+            const unitPrice = getDiscountedUnitPrice(product.price, product.discount ?? 0);
+            const lineTotal = getLineTotal(unitPrice, item.quantity);
+            return { item, unitPrice, lineTotal, product };
+        });
 
-        let discountAmount = 0;
+        const unavailableProduct = pricedLines.some(({ product }) => product.isAvailable === false);
+        if (unavailableProduct) {
+            throw new AppError(
+                400,
+                "One or more selected products are not available. Please update your cart and try again."
+            );
+        }
+
+        const subtotal = pricedLines.reduce((sum, line) => sum + line.lineTotal, 0);
+
+        const productDiscountAmount = roundMoney(
+            pricedLines.reduce(
+                (sum, { item, product }) =>
+                    sum +
+                    getProductLineDiscount(
+                        product.price,
+                        product.discount ?? 0,
+                        item.quantity
+                    ),
+                0
+            )
+        );
+
+        let couponDiscountAmount = 0;
         if (discountCode) {
             const coupon = await CouponModel.findOne({ code: discountCode.toUpperCase() }).session(session);
             if (!coupon) {
@@ -120,45 +180,41 @@ export const createOrderService = async (
             }
 
             if (coupon.discountType === "percentage") {
-                discountAmount = (subtotal * coupon.discountValue) / 100;
+                couponDiscountAmount = roundMoney((subtotal * coupon.discountValue) / 100);
             } else {
-                discountAmount = coupon.discountValue;
+                couponDiscountAmount = roundMoney(coupon.discountValue);
             }
 
             coupon.currentUses += 1;
             await coupon.save({ session });
         }
 
-        // Snapshot selected cart items
-        const items = selectedItems.map((item: any) => ({
-            productId: item.productId._id,
-            name: item.productId.name,
-            price: item.price,
+        const discountAmount = roundMoney(productDiscountAmount + couponDiscountAmount);
+
+        const items = pricedLines.map(({ item, unitPrice, lineTotal, product }) => ({
+            productId: product._id,
+            name: product.name,
+            price: unitPrice,
             quantity: item.quantity,
-            total: item.total,
+            total: lineTotal,
         }));
 
-        const tax = subtotal * 0.05; // 5% tax
-        const shippingCost = subtotal > 5000 ? 0 : 100; // Free shipping over 5000
-        const total = subtotal + tax + shippingCost - discountAmount;
+        const pricingSettings = await OrderSettingsModel.findOne({ isActive: true }).session(session);
+        if (!pricingSettings) {
+            throw new AppError(500, "No active order pricing settings configured");
+        }
+
+        const { tax, shippingCost } = calculateOrderCharges(subtotal, pricingSettings);
+        // subtotal already uses discounted line prices; only subtract coupon from total
+        const total = Math.max(0, roundMoney(subtotal + tax + shippingCost - couponDiscountAmount));
 
         // Create order with transaction session
         const orderData = {
             orderId: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`,
             userId,
             items,
-            shippingAddress: {
-                street: shippingAddress.street,
-                city: shippingAddress.city,
-                postalCode: shippingAddress.postalCode,
-                country: shippingAddress.country,
-            },
-            billingAddress: {
-                street: shippingAddress.street,
-                city: shippingAddress.city,
-                postalCode: shippingAddress.postalCode,
-                country: shippingAddress.country,
-            },
+            shippingAddress: addressSnapshot,
+            billingAddress: addressSnapshot,
             tax,
             shippingCost,
             subtotal,
@@ -169,6 +225,7 @@ export const createOrderService = async (
             transactionId: transactionId || undefined,
             orderStatus: "pending",
             paymentStatus: isCashOnDelivery ? "pending" : "completed",
+            ...(notes?.trim() && { notes: notes.trim() }),
         };
 
         await assertSufficientStock(items, session);
@@ -285,6 +342,41 @@ export const updateOrderStatusService = async (orderId: string, status: string) 
 };
 
 /**
+ * Update order payment status (By Admin)
+ * Syncs linked transaction status when a transaction exists for the order.
+ */
+export const updateOrderPaymentStatusService = async (
+    orderId: string,
+    paymentStatus: TOrderPaymentStatus
+) => {
+    const order = await OrderModel.findOneAndUpdate(
+        { orderId },
+        { paymentStatus },
+        { new: true, runValidators: true }
+    );
+
+    if (!order) {
+        throw new AppError(404, "Order not found");
+    }
+
+    const transactionStatusByPayment: Record<
+        TOrderPaymentStatus,
+        "pending" | "completed" | "failed"
+    > = {
+        pending: "pending",
+        completed: "completed",
+        failed: "failed",
+    };
+
+    await TransactionModel.updateOne(
+        { orderId },
+        { transactionStatus: transactionStatusByPayment[paymentStatus] }
+    );
+
+    return order;
+};
+
+/**
  * Cancel order (By User)
  * @param orderId Order ID
  * @param userId User ID
@@ -338,5 +430,6 @@ export const orderService = {
     getOrdersByUserService,
     getAllOrdersService,
     updateOrderStatusService,
+    updateOrderPaymentStatusService,
     cancelOrderService,
 };

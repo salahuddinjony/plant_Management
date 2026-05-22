@@ -1,4 +1,5 @@
 import { model, Schema } from "mongoose";
+import { ADDRESS_LABELS, DEFAULT_ADDRESS_LABEL } from "./address.constants";
 import { TAddress } from "./address.interface";
 
 const AddressSchema = new Schema<TAddress>(
@@ -25,11 +26,15 @@ const AddressSchema = new Schema<TAddress>(
             required: true,
             trim: true,
         },
-        phoneNumber: String,
+        phoneNumber: {
+            type: String,
+            required: true,
+            trim: true,
+        },
         label: {
             type: String,
-            enum: ["home", "office", "other"],
-            default: "other",
+            enum: ADDRESS_LABELS,
+            default: DEFAULT_ADDRESS_LABEL,
         },
         isDefault: {
             type: Boolean,

@@ -7,6 +7,7 @@ import {
     getAllOrdersService,
     getOrderByIdService,
     getOrdersByUserService,
+    updateOrderPaymentStatusService,
     updateOrderStatusService,
 } from "./order.service";
 
@@ -17,9 +18,18 @@ import {
  */
 export const createOrder = catchAsync(async (req: Request, res: Response) => {
     const userId = req.user?.id;
-    const { shippingAddressId, selectedProductIds, discountCode, paymentMethod, transactionId } = req.body;
+    const { shippingAddressId, selectedProductIds, discountCode, paymentMethod, transactionId, notes } =
+        req.body;
 
-    const order = await createOrderService(userId, shippingAddressId, selectedProductIds, discountCode, paymentMethod, transactionId);
+    const order = await createOrderService(
+        userId,
+        shippingAddressId,
+        selectedProductIds,
+        discountCode,
+        paymentMethod,
+        transactionId,
+        notes
+    );
 
     sendResponse(res, {
         success: true,
@@ -105,6 +115,26 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response) 
 });
 
 /**
+ * Update order payment status (By Admin)
+ */
+export const updateOrderPaymentStatus = catchAsync(async (req: Request, res: Response) => {
+    const { orderId } = req.params as { orderId: string };
+    const { paymentStatus } = req.body;
+
+    const order = await updateOrderPaymentStatusService(
+        orderId as string,
+        paymentStatus
+    );
+
+    sendResponse(res, {
+        success: true,
+        statusCode: 200,
+        message: "Order payment status updated successfully",
+        data: order,
+    });
+});
+
+/**
  * Cancel order (By User)
  * @param req Request
  * @param res Response
@@ -129,5 +159,6 @@ export const orderController = {
     getOrders,
     getAllOrders,
     updateOrderStatus,
+    updateOrderPaymentStatus,
     cancelOrder,
 };

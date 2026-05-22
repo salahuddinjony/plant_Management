@@ -1,7 +1,5 @@
-import { USER_ROLE } from "../../constants/status.constants";
-
-const isAdminRole = (role?: string) =>
-    role === USER_ROLE.ADMIN || role === USER_ROLE.SUPER_ADMIN;
+import { getDiscountedUnitPrice } from "./product-price.util";
+import { isAdminRole } from "./product-availability.util";
 
 const toPlainProduct = (product: unknown): Record<string, unknown> => {
     if (!product || typeof product !== "object") {
@@ -22,14 +20,24 @@ const normalizeProductImages = (plain: Record<string, unknown>): Record<string, 
     return { ...rest, images: images ?? [] };
 };
 
+const withPricingFields = (plain: Record<string, unknown>): Record<string, unknown> => {
+    const price = Number(plain.price) || 0;
+    const discount = Number(plain.discount) || 0;
+    return {
+        ...plain,
+        finalPrice: getDiscountedUnitPrice(price, discount),
+    };
+};
+
 /**
  * Responses use `images` only (no `image`).
+ * `finalPrice` = unit price after product discount %.
  * Admin/super-admin: include `quantity` (= available).
  */
 export const formatProductResponse = (product: unknown, role?: string) => {
     if (!product) return product;
 
-    const plain = normalizeProductImages(toPlainProduct(product));
+    const plain = withPricingFields(normalizeProductImages(toPlainProduct(product)));
     const available = (plain.available as number) ?? 0;
 
     if (isAdminRole(role)) {

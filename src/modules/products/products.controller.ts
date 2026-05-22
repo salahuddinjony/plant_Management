@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import httpStatus from "http-status";
 import { USER_ROLE } from "../../constants/status.constants";
+import AppError from "../../errors/AppError";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
 import { uploadProductImageFiles } from "./product-images.util";
@@ -39,7 +40,11 @@ const createProductController = catchAsync(async (req, res) => {
 const getProductByIdController = catchAsync(
     async (req: Request, res: Response) => {
         const { id } = req.params as { id: string };
-        const result = await productService.getProductByIdService(id);
+        const result = await productService.getProductByIdService(id, req.user?.role);
+
+        if (!result) {
+            throw new AppError(httpStatus.NOT_FOUND, "Product not found");
+        }
 
         sendResponse(res, {
             statusCode: httpStatus.OK,
@@ -57,7 +62,7 @@ const getProductByIdController = catchAsync(
  */
 const getAllProductsController = catchAsync(
     async (req: Request, res: Response) => {
-        const result = await productService.getAllProductsService(req.query);
+        const result = await productService.getAllProductsService(req.query, req.user?.role);
 
         sendResponse(res, {
             statusCode: httpStatus.OK,
@@ -77,7 +82,11 @@ const getAllProductsController = catchAsync(
 const getProductsByTagController = catchAsync(
     async (req: Request, res: Response) => {
         const { tags } = req.params;
-        const result = await productService.getProductsByTagService(tags as string, req.query);
+        const result = await productService.getProductsByTagService(
+            tags as string,
+            req.query,
+            req.user?.role
+        );
 
         sendResponse(res, {
             statusCode: httpStatus.OK,
@@ -97,7 +106,11 @@ const getProductsByTagController = catchAsync(
 const getAllProductsByCategoryIdController = catchAsync(
     async (req: Request, res: Response) => {
         const { categoryId } = req.params;
-        const result = await productService.getAllProductsByCategoryIdService(categoryId as string, req.query);
+        const result = await productService.getAllProductsByCategoryIdService(
+            categoryId as string,
+            req.query,
+            req.user?.role
+        );
 
         sendResponse(res, {
             statusCode: httpStatus.OK,

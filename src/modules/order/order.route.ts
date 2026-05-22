@@ -35,9 +35,22 @@ orderRouter.get("/:orderId", auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUP
 /**
  * Update order status (By Admin)
  */
-orderRouter.patch("/:orderId/status", auth(USER_ROLE.ADMIN),
+orderRouter.patch(
+    "/:orderId/status",
+    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
     validateRequest(orderValidation.updateOrderStatusValidationSchema),
-    orderController.updateOrderStatus);
+    orderController.updateOrderStatus
+);
+
+/**
+ * Update order payment status (By Admin)
+ */
+orderRouter.patch(
+    "/:orderId/payment-status",
+    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    validateRequest(orderValidation.updateOrderPaymentStatusValidationSchema),
+    orderController.updateOrderPaymentStatus
+);
 
 /**
  * Cancel order (By User) - Within 6 hours of creation

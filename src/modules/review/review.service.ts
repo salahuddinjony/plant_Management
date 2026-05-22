@@ -88,6 +88,9 @@ export const createReviewService = async (
         if (!product) {
             throw new AppError(404, "Product not found");
         }
+        if (product.isAvailable === false) {
+            throw new AppError(400, "This product is not available");
+        }
 
         const [review] = await ReviewModel.create(
             [

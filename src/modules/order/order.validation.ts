@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ORDER_PAYMENT_STATUSES } from "./order.constants";
 
 const orderBodySchema = z.object({
     shippingAddressId: z.string().regex(/^[0-9a-f]{24}$/i, "Invalid address ID"),
@@ -37,7 +38,18 @@ const updateOrderStatusValidationSchema = z.object({
     }),
 });
 
+const updateOrderPaymentStatusValidationSchema = z.object({
+    body: z.object({
+        paymentStatus: z.enum(ORDER_PAYMENT_STATUSES, {
+            errorMap: () => ({
+                message: "paymentStatus must be pending, completed, or failed",
+            }),
+        }),
+    }),
+});
+
 export const orderValidation = {
     createOrderZodSchema,
     updateOrderStatusValidationSchema,
+    updateOrderPaymentStatusValidationSchema,
 };

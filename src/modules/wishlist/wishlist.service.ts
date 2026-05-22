@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import AppError from "../../errors/AppError";
+import { assertProductPurchasable } from "../products/product-availability.util";
 import { ProductModel } from "../products/products.model";
 import { WishlistModel } from "./wishlist.model";
 
@@ -10,10 +11,8 @@ import { WishlistModel } from "./wishlist.model";
  * @returns The updated wishlist
  */
 export const addToWishlistService = async (userId: string, productId: string) => {
-    const product = await ProductModel.findById(productId);
-    if (!product) {
-        throw new AppError(404, "Product not found");
-    }
+    const foundProduct = await ProductModel.findById(productId);
+    assertProductPurchasable(foundProduct);
 
     let wishlist = await WishlistModel.findOne({ userId });
     if (!wishlist) {
@@ -28,7 +27,10 @@ export const addToWishlistService = async (userId: string, productId: string) =>
         await wishlist.save();
     }
 
-    return wishlist.populate("productIds");
+    return wishlist.populate({
+        path: "productIds",
+        match: { isAvailable: true },
+    });
 };
 
 /**
@@ -46,7 +48,10 @@ export const removeFromWishlistService = async (userId: string, productId: strin
     wishlist.productIds = wishlist.productIds.filter((id) => id.toString() !== productId);
     await wishlist.save();
 
-    return wishlist.populate("productIds");
+    return wishlist.populate({
+        path: "productIds",
+        match: { isAvailable: true },
+    });
 };
 
 /**
@@ -55,10 +60,20 @@ export const removeFromWishlistService = async (userId: string, productId: strin
  * @returns The wishlist of the user
  */
 export const getWishlistService = async (userId: string) => {
-    const wishlist = await WishlistModel.findOne({ userId }).populate("productIds");
+    const wishlist = await WishlistModel.findOne({ userId }).populate({
+        path: "productIds",
+        match: { isAvailable: true },
+    });
     if (!wishlist) {
         throw new AppError(404, "Wishlist not found");
     }
+
+    const availableIds = wishlist.productIds.filter((id) => id != null);
+    if (availableIds.length < wishlist.productIds.length) {
+        wishlist.productIds = availableIds as typeof wishlist.productIds;
+        await wishlist.save();
+    }
+
     return wishlist;
 };
 

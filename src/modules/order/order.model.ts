@@ -1,4 +1,5 @@
 import { model, Schema } from "mongoose";
+import { ADDRESS_LABELS, DEFAULT_ADDRESS_LABEL } from "../address/address.constants";
 import { TOrder } from "./order.interface";
 
 const OrderSchema = new Schema<TOrder>(
@@ -45,12 +46,20 @@ const OrderSchema = new Schema<TOrder>(
             city: { type: String, required: true },
             postalCode: { type: String },
             country: { type: String, required: true },
+            phoneNumber: { type: String, required: true, trim: true },
+            label: {
+                type: String,
+                enum: ADDRESS_LABELS,
+                default: DEFAULT_ADDRESS_LABEL,
+            },
         },
         billingAddress: {
             street: String,
             city: String,
             postalCode: String,
             country: String,
+            phoneNumber: String,
+            label: { type: String, enum: ADDRESS_LABELS },
         },
         orderStatus: {
             type: String,

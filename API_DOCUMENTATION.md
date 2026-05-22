@@ -604,6 +604,25 @@ Update order status (Admin)
 - **Body**: `{ status: "pending | processing | shipped | delivered | cancelled" }`
 - **Response**: Updated order
 
+### PATCH `/orders/:orderId/payment-status`
+
+Update order payment status (Admin / Super Admin)
+
+- **Auth**: Required (Admin or Super Admin)
+- **Params**: `orderId` — e.g. `ORD-1704196800000-abc123`
+- **Body**:
+
+  ```json
+  {
+    "paymentStatus": "completed"
+  }
+  ```
+
+  - `paymentStatus` (required): `"pending"` | `"completed"` | `"failed"`
+- **Response**: Updated order with new `paymentStatus`
+- **Side effect**: Syncs linked transaction `transactionStatus` when a transaction exists for the order
+- See also: `documentations/ORDER_PAYMENT_STATUS_API.md`
+
 ### PATCH `/orders/:orderId/cancel`
 
 Cancel order (User) - Within 6 hours of creation
@@ -746,15 +765,18 @@ Create new address
 
   ```json
   {
-    "street": "street address",
-    "city": "city",
-    "postalCode": "postal code",
-    "country": "country",
-    "phoneNumber": "phone (optional)",
-    "label": "home | office | other",
-    "isDefault": false
+    "street": "123 Main Street, Apt 4B",
+    "city": "Dhaka",
+    "postalCode": "1212",
+    "country": "Bangladesh",
+    "phoneNumber": "01712345678",
+    "label": "home",
+    "isDefault": true
   }
   ```
+
+  - `phoneNumber` (required): 10–15 digits (e.g. `"01712345678"`)
+  - `label` (optional): `"home"` | `"office"` | `"other"` — defaults to `"other"` if omitted
 
 - **Response**: Created address
 - **Note**: First address is automatically set as default
@@ -1158,8 +1180,8 @@ Get user profile
       total: number
     }
   ]
-  shippingAddress: { street, city, postalCode, country, phoneNumber }
-  billingAddress: { street, city, postalCode, country, phoneNumber }
+  shippingAddress: { street, city, postalCode, country, phoneNumber, label }  // snapshot from address at checkout
+  billingAddress: { street, city, postalCode, country, phoneNumber, label }
   subtotal: number
   tax: number (5%)
   shippingCost: number (free if subtotal > 5000, else 100)
@@ -1210,7 +1232,7 @@ Get user profile
   city: string
   postalCode: string
   country: string
-  phoneNumber: string (optional)
+  phoneNumber: string (required)
   label: "home" | "office" | "other"
   isDefault: boolean
   createdAt: Date

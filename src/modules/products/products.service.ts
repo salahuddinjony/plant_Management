@@ -7,6 +7,10 @@ import { OrderModel } from "../order/order.model";
 import { ReviewModel } from "../review/review.model";
 import { PRODUCT_REVIEWS_POPULATE, syncProductReviewIds } from "../review/review.service";
 import { WishlistModel } from "../wishlist/wishlist.model";
+import {
+    catalogFilterForRole,
+    sanitizeCatalogQuery,
+} from "./product-availability.util";
 import { collectProductImageUrls, uploadProductImageFiles } from "./product-images.util";
 import { TProduct } from "./products.interface";
 import { ProductModel } from "./products.model";
@@ -63,8 +67,11 @@ const createProductService = async (productData: TProductCreateInput) => {
  * @param id - The ID of the product to retrieve
  * @returns The product with the specified ID
  */
-const getProductByIdService = async (id: string) => {
-    const product = await ProductModel.findById(id);
+const getProductByIdService = async (id: string, role?: string) => {
+    const product = await ProductModel.findOne({
+        _id: id,
+        ...catalogFilterForRole(role),
+    });
     if (!product) {
         return null;
     }
@@ -76,7 +83,10 @@ const getProductByIdService = async (id: string) => {
         }
     }
 
-    return ProductModel.findById(id).populate(PRODUCT_REVIEWS_POPULATE);
+    return ProductModel.findOne({
+        _id: id,
+        ...catalogFilterForRole(role),
+    }).populate(PRODUCT_REVIEWS_POPULATE);
 };
 
 const withPopulatedReviews = <T extends { populate: (arg: typeof PRODUCT_REVIEWS_POPULATE) => T }>(
@@ -89,9 +99,11 @@ const withPopulatedReviews = <T extends { populate: (arg: typeof PRODUCT_REVIEWS
  * @queries: {searchTerm: string, brand: string, tags: string, price: string, rating: string, stock: string}
  * @returns An object containing the products and pagination metadata
  */
-const getAllProductsService = async (query: Record<string, unknown>) => {
-
-    const productQuery = new QueryBuilder(ProductModel.find({}), query)
+const getAllProductsService = async (query: Record<string, unknown>, role?: string) => {
+    const productQuery = new QueryBuilder(
+        ProductModel.find(catalogFilterForRole(role)),
+        sanitizeCatalogQuery(query, role)
+    )
         .search(PRODUCT_SEARCH_FIELDS, PRODUCT_SEARCH_ARRAY_FIELDS)
         .filter()
         .sort()
@@ -108,7 +120,11 @@ const getAllProductsService = async (query: Record<string, unknown>) => {
  * @param query - The query parameters to filter, sort, and paginate the results
  * @returns An object containing the products and pagination metadata
  */
-const getProductsByTagService = async (tags: string, query: Record<string, unknown> = {}) => {
+const getProductsByTagService = async (
+    tags: string,
+    query: Record<string, unknown> = {},
+    role?: string
+) => {
     // Split tags by comma, trim whitespace, and create case-insensitive regex for each
     const tagArray = tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
     const tagsRegexArray = tagArray.map(t => new RegExp(`^${t}$`, 'i'));
@@ -117,10 +133,11 @@ const getProductsByTagService = async (tags: string, query: Record<string, unkno
     const productQuery = new QueryBuilder(
         ProductModel.find({
             tags: {
-                $in: tagsRegexArray
-            }
+                $in: tagsRegexArray,
+            },
+            ...catalogFilterForRole(role),
         }),
-        query
+        sanitizeCatalogQuery(query, role)
     )
         .search(PRODUCT_SEARCH_FIELDS, PRODUCT_SEARCH_ARRAY_FIELDS)
         .filter()
@@ -139,8 +156,15 @@ const getProductsByTagService = async (tags: string, query: Record<string, unkno
  * @param categoryId - The ID of the category to retrieve products from
  * @returns An object containing the products and pagination metadata
  */
-const getAllProductsByCategoryIdService = async (categoryId: string, query: Record<string, unknown> = {}) => {
-    const productQuery = new QueryBuilder(ProductModel.find({ categoryId }), query)
+const getAllProductsByCategoryIdService = async (
+    categoryId: string,
+    query: Record<string, unknown> = {},
+    role?: string
+) => {
+    const productQuery = new QueryBuilder(
+        ProductModel.find({ categoryId, ...catalogFilterForRole(role) }),
+        sanitizeCatalogQuery(query, role)
+    )
         .search(PRODUCT_SEARCH_FIELDS, PRODUCT_SEARCH_ARRAY_FIELDS)
         .filter()
         .sort()

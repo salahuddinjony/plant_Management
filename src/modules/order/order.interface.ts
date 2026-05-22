@@ -13,12 +13,16 @@ export type TOrder = {
         city: string;
         postalCode?: string;
         country: string;
+        phoneNumber: string;
+        label: "home" | "office" | "other";
     };
     billingAddress?: {
         street?: string;
         city: string;
         postalCode?: string;
         country: string;
+        phoneNumber?: string;
+        label?: "home" | "office" | "other";
     };
     orderStatus: "pending" | "processing" | "shipped" | "delivered" | "cancelled";
     paymentStatus: "pending" | "completed" | "failed";

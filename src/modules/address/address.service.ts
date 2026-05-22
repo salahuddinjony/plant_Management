@@ -1,19 +1,25 @@
 import AppError from "../../errors/AppError";
+import { DEFAULT_ADDRESS_LABEL } from "./address.constants";
+import { TAddressInput } from "./address.interface";
 import { AddressModel } from "./address.model";
 
-export const createAddressService = async (userId: string, addressData: any) => {
+export const createAddressService = async (userId: string, addressData: TAddressInput) => {
+    const payload: TAddressInput = {
+        ...addressData,
+        label: addressData.label ?? DEFAULT_ADDRESS_LABEL,
+    };
     // If this is the first address or isDefault is true, make it the default
     const existingAddresses = await AddressModel.find({ userId });
     if (existingAddresses.length === 0) {
-        addressData.isDefault = true;
+        payload.isDefault = true;
     }
 
     // If isDefault is true, unset other addresses as default
-    if (addressData.isDefault) {
+    if (payload.isDefault) {
         await AddressModel.updateMany({ userId }, { isDefault: false });
     }
 
-    const address = await AddressModel.create({ userId, ...addressData });
+    const address = await AddressModel.create({ userId, ...payload });
     return address;
 };
 
@@ -30,7 +36,11 @@ export const getAddressByIdService = async (addressId: string, userId: string) =
     return address;
 };
 
-export const updateAddressService = async (addressId: string, userId: string, updateData: any) => {
+export const updateAddressService = async (
+    addressId: string,
+    userId: string,
+    updateData: Partial<TAddressInput>
+) => {
     const address = await AddressModel.findById(addressId);
     if (!address || address.userId.toString() !== userId) {
         throw new AppError(404, "Address not found");

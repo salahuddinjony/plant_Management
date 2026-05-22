@@ -1,12 +1,15 @@
 import AppError from "../../errors/AppError";
+import { assertProductPurchasable } from "../products/product-availability.util";
+import { getDiscountedUnitPrice, getLineTotal } from "../products/product-price.util";
 import { ProductModel } from "../products/products.model";
+import type { HydratedDocument } from "mongoose";
+import { TCart } from "./cart.interface";
 import { CartModel } from "./cart.model";
 
 export const addItemToCartService = async (userId: string, productId: string, quantity: number) => {
-    const product = await ProductModel.findById(productId);
-    if (!product) {
-        throw new AppError(404, "Product not found");
-    }
+    const foundProduct = await ProductModel.findById(productId);
+    assertProductPurchasable(foundProduct);
+    const product = foundProduct;
 
     let cart = await CartModel.findOne({ userId });
     if (!cart) {
@@ -25,15 +28,18 @@ export const addItemToCartService = async (userId: string, productId: string, qu
         throw new AppError(400, "Insufficient stock available");
     }
 
+    const unitPrice = getDiscountedUnitPrice(product.price, product.discount ?? 0);
+
     if (existingItem) {
+        existingItem.price = unitPrice;
         existingItem.quantity += quantity;
-        existingItem.total = existingItem.quantity * existingItem.price;
+        existingItem.total = getLineTotal(unitPrice, existingItem.quantity);
     } else {
         cart.items.push({
             productId,
             quantity,
-            price: product.price!,
-            total: product.price! * quantity,
+            price: unitPrice,
+            total: getLineTotal(unitPrice, quantity),
         });
     }
 
@@ -66,10 +72,9 @@ export const updateCartItemQuantityService = async (userId: string, productId: s
         throw new AppError(400, "Quantity must be greater than 0");
     }
 
-    const product = await ProductModel.findById(productId);
-    if (!product) {
-        throw new AppError(404, "Product not found");
-    }
+    const foundProduct = await ProductModel.findById(productId);
+    assertProductPurchasable(foundProduct);
+    const product = foundProduct;
 
     const stock = product.available ?? 0;
     if (stock < quantity) {
@@ -86,8 +91,10 @@ export const updateCartItemQuantityService = async (userId: string, productId: s
         throw new AppError(404, "Item not in cart");
     }
 
+    const unitPrice = getDiscountedUnitPrice(product.price, product.discount ?? 0);
+    item.price = unitPrice;
     item.quantity = quantity;
-    item.total = item.quantity * item.price;
+    item.total = getLineTotal(unitPrice, quantity);
 
     // Recalculate totals
     cart.subtotal = cart.items.reduce((sum, item) => sum + item.total, 0);
@@ -97,11 +104,33 @@ export const updateCartItemQuantityService = async (userId: string, productId: s
     return cart.populate("items.productId");
 };
 
+const pruneUnavailableCartItems = async (cart: HydratedDocument<TCart>) => {
+    if (!cart) return cart;
+
+    const before = cart.items.length;
+    cart.items = cart.items.filter(
+        (item) => item.productId != null && typeof item.productId === "object"
+    );
+
+    if (cart.items.length < before) {
+        cart.subtotal = cart.items.reduce((sum, item) => sum + item.total, 0);
+        cart.total = cart.subtotal;
+        await cart.save();
+    }
+
+    return cart;
+};
+
 export const getCartService = async (userId: string) => {
-    const cart = await CartModel.findOne({ userId }).populate("items.productId");
+    let cart = await CartModel.findOne({ userId }).populate({
+        path: "items.productId",
+        match: { isAvailable: true },
+    });
     if (!cart) {
         throw new AppError(404, "Cart not found");
     }
+
+    cart = await pruneUnavailableCartItems(cart);
     return cart;
 };
 

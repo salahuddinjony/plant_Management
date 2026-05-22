@@ -9,6 +9,7 @@ import { contactRouter } from "../modules/contact/contact.route";
 import couponRouter from "../modules/coupon/coupon.route";
 import { flashSaleRoutes } from "../modules/flash-sale/flash-sale.route";
 import orderRouter from "../modules/order/order.route";
+import orderSettingsRouter from "../modules/order-settings/order-settings.route";
 import paymentMethodRouter from "../modules/payment-method/payment-method.route";
 import { productRoutes } from "../modules/products/products.route";
 import reviewRouter from "../modules/review/review.route";
@@ -60,6 +61,10 @@ const moduleRoutes: IModuleRoutes[] = [
   {
     path: "/orders",
     route: orderRouter,
+  },
+  {
+    path: "/order-settings",
+    route: orderSettingsRouter,
   },
   {
     path: "/reviews",
