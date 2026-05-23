@@ -10,40 +10,60 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VPS via SSH
-        uses: appleboy/ssh-action@master
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Sync repo on VPS
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-
           script: |
             set -e
-
             echo "📦 Moving to project directory..."
             cd ~/plant_Management
-
             echo "🔄 Syncing latest code..."
+            git fetch origin main
             git reset --hard origin/main
             git pull origin main
+            echo "📥 Installing production dependencies..."
+            npm ci --omit=dev
 
-            echo "📥 Installing dependencies..."
-            npm install
+      - name: Upload build artifacts
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "dist"
+          target: "~/plant_Management"
+          overwrite: true
 
-            echo "🧹 Cleaning old build..."
-            rm -rf dist
-
-            echo "🏗️ Building project..."
-            npm run build
-
+      - name: Restart application
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -e
+            cd ~/plant_Management
             echo "🛑 Stopping old PM2 process..."
             pm2 delete nursery-server || true
-
             echo "🚀 Starting new process..."
             pm2 start dist/server.js --name nursery-server
-
             echo "💾 Saving PM2 process list..."
             pm2 save
-
             echo "✅ Deployment completed successfully!"
