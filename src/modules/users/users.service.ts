@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import QueryBuilder from "../../builder/QueryBuilder";
 import AppError from "../../errors/AppError";
 import { USER_ROLE, USER_STATUS } from "../../constants/status.constants";
+import { getEffectivePermissions } from "../rbac/rbac.utils";
 import { AvatarModel } from "../avatar/avatar.model";
 import { UserModel } from "./users.model";
 
@@ -14,12 +15,16 @@ import { UserModel } from "./users.model";
 const getProfile = async (userId: string) => {
   console.log("Fetching profile for userId:", userId);
   const user = await UserModel.findById(userId)
-    .select("id name emailOrPhone role status profilePicture avatarId")
+    .select("id name emailOrPhone role staffRole permissions status profilePicture avatarId")
     .populate("avatarId", "name imageUrl");
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, "User not found");
   }
-  return user;
+  const doc = user.toObject();
+  return {
+    ...doc,
+    permissions: getEffectivePermissions(user),
+  };
 }
 
 /**

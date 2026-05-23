@@ -1,6 +1,7 @@
 import { Model, model, Schema } from "mongoose";
 import { USER_ROLE, USER_STATUS } from "../../constants/status.constants";
 import { hashPassword, isPasswordHashed } from "../auth/auth.utils";
+import { STAFF_ROLE_SLUGS } from "../rbac/staff-role.constants";
 import { TUser } from "./users.interface";
 
 export interface IUserModel extends Model<TUser> {
@@ -40,6 +41,18 @@ const UserSchema = new Schema<TUser, IUserModel>(
       type: String,
       enum: Object.values(USER_ROLE),
       default: USER_ROLE.USER,
+    },
+    staffRole: {
+      type: String,
+      enum: STAFF_ROLE_SLUGS,
+    },
+    permissions: {
+      type: [String],
+      default: [],
+    },
+    invitedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
     },
     status: {
       type: String,

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
+import { APP_ROLES, panelRead } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { orderSettingsController } from "./order-settings.controller";
 import { orderSettingsValidation } from "./order-settings.validation";
@@ -10,19 +11,15 @@ const orderSettingsRouter = Router();
 /** Active pricing (checkout preview) — must be before /:id */
 orderSettingsRouter.get(
     "/active",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     orderSettingsController.getActiveOrderSettingsController
 );
 
-orderSettingsRouter.get(
-    "/",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
-    orderSettingsController.getAllOrderSettingsController
-);
+orderSettingsRouter.get("/", ...panelRead, orderSettingsController.getAllOrderSettingsController);
 
 orderSettingsRouter.get(
     "/:id",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelRead,
     orderSettingsController.getOrderSettingsByIdController
 );
 

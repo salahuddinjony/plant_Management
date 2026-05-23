@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
+import { APP_ROLES, panelRead } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { transactionController } from "./transaction.controller";
 import { transactionValidation } from "./transaction.validation";
@@ -22,7 +23,7 @@ transactionRouter.post(
  */
 transactionRouter.get(
     "/history/my",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN),
+    auth(...APP_ROLES),
     transactionController.getMyTransactionHistoryController
 );
 
@@ -31,7 +32,7 @@ transactionRouter.get(
  */
 transactionRouter.get(
     "/history/all",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelRead,
     transactionController.getAllTransactionHistoryController
 );
 
@@ -40,7 +41,7 @@ transactionRouter.get(
  */
 transactionRouter.get(
     "/order/:orderId",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN),
+    auth(...APP_ROLES),
     transactionController.getTransactionByOrderIdController
 );
 
@@ -49,7 +50,7 @@ transactionRouter.get(
  */
 transactionRouter.get(
     "/:id",
-    auth(USER_ROLE.ADMIN, USER_ROLE.USER, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     transactionController.getTransactionByIdController
 );
 

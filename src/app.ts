@@ -3,6 +3,7 @@ import express from "express";
 import path from "path";
 import globalErrorHandler from "./middlewares/globalErrorHandler";
 import notFound from "./middlewares/notFound";
+import { renderStaffInviteLanding } from "./modules/staff/staff-invite-landing.controller";
 import router from "./routes";
 
 
@@ -27,6 +28,9 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get('/verify-email', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/verify-email.html'));
 });
+
+/** Staff invite landing (app not installed → install guide + store links) */
+app.get("/invite", renderStaffInviteLanding);
 
 // Serve success pages
 app.use(

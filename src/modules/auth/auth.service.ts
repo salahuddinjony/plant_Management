@@ -13,6 +13,7 @@ import {
     PENDING_SIGNUP_TTL_MS,
     PendingSignupModel,
 } from "./pending-signup.model";
+import { getEffectivePermissions, isPanelUser } from "../rbac/rbac.utils";
 import {
     generateToken,
     hashPassword,
@@ -41,15 +42,41 @@ const sanitizeUser = (user: { toObject: (opts?: object) => Record<string, unknow
         },
     });
 
+/** Login/signup user payload — tokens only at data root, not inside user */
+const toAuthUserDto = (
+    user: { toObject: (opts?: object) => Record<string, unknown>; role?: string; staffRole?: string },
+    permissions: string[]
+) => {
+    const dto: Record<string, unknown> = {
+        ...sanitizeUser(user),
+        permissions,
+        staffRole: user.staffRole,
+        canAccessAdminPanel: isPanelUser(user.role),
+    };
+
+    // Legacy admin app checks role === "admin" only
+    if (user.role === USER_ROLE.SUPER_ADMIN) {
+        dto.systemRole = USER_ROLE.SUPER_ADMIN;
+        dto.role = USER_ROLE.ADMIN;
+    }
+
+    return dto;
+};
+
 const issueTokensForUser = async (user: {
     _id: unknown;
     emailOrPhone: string;
     role?: string;
+    staffRole?: string;
+    permissions?: string[];
 }) => {
+    const permissions = getEffectivePermissions(user);
     const jwtPayload: TPayload = {
         id: user._id as TPayload["id"],
         emailOrPhone: user.emailOrPhone,
         role: user.role as string,
+        staffRole: user.staffRole,
+        permissions,
     };
     const jwtAccessToken = await generateToken(jwtPayload);
     const jwtRefreshToken = await generateToken(jwtPayload, true);
@@ -60,8 +87,12 @@ const issueTokensForUser = async (user: {
         { new: true }
     );
 
+    if (!updatedUser) {
+        throw new AppError(status.NOT_FOUND, "User not found");
+    }
+
     return {
-        user: updatedUser,
+        user: toAuthUserDto(updatedUser, permissions),
         accessToken: jwtAccessToken,
         refreshToken: jwtRefreshToken,
     };
@@ -252,6 +283,12 @@ const loginService = async (payload: TLogin) => {
     }
 
     if (user.status === USER_STATUS.INACTIVE) {
+        if (user.role === USER_ROLE.STAFF) {
+            throw new AppError(
+                status.FORBIDDEN,
+                "Please accept your staff invite (email/SMS link or invite code) and set your password first."
+            );
+        }
         throw new AppError(
             status.FORBIDDEN,
             "Account not verified. Complete OTP verification or resend signup OTP."

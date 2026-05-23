@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
+import { panelRead } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { paymentMethodController } from "./payment-method.controller";
 import { paymentMethodValidation } from "./payment-method.validation";
@@ -22,7 +23,7 @@ paymentMethodRouter.post(
  */
 paymentMethodRouter.get(
     "/admin/all",
-    auth(USER_ROLE.ADMIN),
+    ...panelRead,
     paymentMethodController.getAllPaymentMethodsController
 );
 
@@ -39,7 +40,7 @@ paymentMethodRouter.get(
  */
 paymentMethodRouter.get(
     "/:id",
-    auth(USER_ROLE.ADMIN),
+    ...panelRead,
     paymentMethodController.getPaymentMethodByIdController
 );
 

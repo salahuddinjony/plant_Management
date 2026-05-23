@@ -6,6 +6,7 @@
 import { Router } from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
+import { APP_ROLES, PANEL_ROLES, panelRead } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { upload } from "../../utils/multer";
 import { userController } from "./users.controller";
@@ -20,7 +21,7 @@ const router = Router();
  */
 router.get(
   "/profile",
-  auth(USER_ROLE.ADMIN, USER_ROLE.USER, USER_ROLE.SUPER_ADMIN),
+  auth(...APP_ROLES),
   userController.getProfile
 );
 
@@ -45,11 +46,7 @@ router.patch(
  * @route GET /all-users
  * @group User - Admin can see all registered users list
  */
-router.get(
-  "/all-users",
-  auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN, USER_ROLE.USER),
-  userController.getAllUsers
-);
+router.get("/all-users", ...panelRead, userController.getAllUsers);
 
 /**
  * @route PATCH /user/update-status

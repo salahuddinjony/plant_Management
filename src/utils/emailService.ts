@@ -142,3 +142,36 @@ export const sendEmail = async ({
         );
     }
 };
+
+export const sendHtmlEmail = async ({
+    email,
+    subject,
+    html,
+    text,
+}: {
+    email: string;
+    subject: string;
+    html: string;
+    text?: string;
+}) => {
+    await ensureMailerReady();
+
+    try {
+        await transporter.sendMail({
+            from: `"Nursery Bazar BD" <${config.smtpUserName}>`,
+            to: email,
+            subject,
+            html,
+            text: text ?? subject,
+        });
+        return { email };
+    } catch (emailError) {
+        const message =
+            emailError instanceof Error ? emailError.message : "Unknown email error";
+        console.error("Failed to send email:", message);
+        throw new AppError(
+            status.INTERNAL_SERVER_ERROR,
+            `Failed to send email. ${message}`
+        );
+    }
+};

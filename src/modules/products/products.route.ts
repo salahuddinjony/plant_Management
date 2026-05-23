@@ -1,6 +1,7 @@
 import express from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
+import { APP_ROLES } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { upload } from "../../utils/multer";
 import { productController } from "./products.controller";
@@ -52,7 +53,7 @@ router.delete(
  */
 router.get(
     "/tags/:tags",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     productController.getProductsByTagController
 );
 
@@ -63,7 +64,7 @@ router.get(
  */
 router.get(
     "/:id",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     productController.getProductByIdController
 );
 
@@ -74,7 +75,7 @@ router.get(
  */
 router.get(
     "/",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     productController.getAllProductsController
 );
 
@@ -85,7 +86,7 @@ router.get(
  */
 router.get(
     "/category/:categoryId",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     productController.getAllProductsByCategoryIdController
 );
 

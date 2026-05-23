@@ -7,6 +7,8 @@ export type TPayload = {
   id: mongoose.ObjectId;
   emailOrPhone: string;
   role: string;
+  staffRole?: string;
+  permissions?: string[];
 };
 
 export const generateToken = async (

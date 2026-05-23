@@ -1,6 +1,7 @@
 import express from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
+import { APP_ROLES, panelRead } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { contactController } from "./contact.controller";
 import { contactValidation } from "./contact.validation";
@@ -15,15 +16,11 @@ router.post(
     contactController.createContactController
 );
 
-router.get(
-    "/admin/all",
-    auth(USER_ROLE.ADMIN),
-    contactController.getAllContactsController
-);
+router.get("/admin/all", ...panelRead, contactController.getAllContactsController);
 
 router.get(
     "/:id",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     contactController.getContactByIdController
 );
 
@@ -43,7 +40,7 @@ router.delete(
 // Public route - get active contacts
 router.get(
     "/",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     contactController.getActiveContactsController
 );
 

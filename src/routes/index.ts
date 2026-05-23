@@ -11,6 +11,8 @@ import { flashSaleRoutes } from "../modules/flash-sale/flash-sale.route";
 import orderRouter from "../modules/order/order.route";
 import orderSettingsRouter from "../modules/order-settings/order-settings.route";
 import paymentMethodRouter from "../modules/payment-method/payment-method.route";
+import rbacRouter from "../modules/rbac/rbac.route";
+import staffRouter from "../modules/staff/staff.route";
 import { productRoutes } from "../modules/products/products.route";
 import reviewRouter from "../modules/review/review.route";
 import { testRoutes } from "../modules/tests/tests.route";
@@ -93,6 +95,14 @@ const moduleRoutes: IModuleRoutes[] = [
   {
     path: "/transactions",
     route: transactionRouter,
+  },
+  {
+    path: "/rbac",
+    route: rbacRouter,
+  },
+  {
+    path: "/staff",
+    route: staffRouter,
   },
 ];
 

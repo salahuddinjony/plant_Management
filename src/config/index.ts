@@ -71,4 +71,11 @@ export default {
   smsSenderName: process.env.SMS_SENDER_NAME,
   smsUserName: process.env.SMS_USER_NAME,
   mimSmsUrl: process.env.MIM_SMS_URL,
+  adminInviteBaseUrl:
+    process.env.ADMIN_INVITE_BASE_URL || "http://143.244.134.128:8050/invite",
+  adminAppDeepLinkScheme: process.env.ADMIN_APP_DEEP_LINK_SCHEME || "nurseryadmin",
+  androidAdminAppPackage: process.env.ANDROID_ADMIN_APP_PACKAGE || "",
+  staffInviteExpiryDays: Number(process.env.STAFF_INVITE_EXPIRY_DAYS) || 7,
+  androidPlayStoreUrl: process.env.ANDROID_PLAY_STORE_URL || "",
+  iosAppStoreUrl: process.env.IOS_APP_STORE_URL || "",
 };

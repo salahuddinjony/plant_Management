@@ -1,6 +1,7 @@
 import express, { NextFunction, Request, Response } from 'express';
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
+import { APP_ROLES, panelRead } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { upload } from "../../utils/multer";
 import { flashSaleController } from "./flash-sale.controller";
@@ -66,7 +67,7 @@ router.delete(
  */
 router.get(
     "/featured",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     flashSaleController.getFeaturedFlashSalesController
 );
 
@@ -78,7 +79,7 @@ router.get(
  */
 router.get(
     "/active",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     flashSaleController.getActiveFlashSalesController
 );
 
@@ -90,7 +91,7 @@ router.get(
  */
 router.get(
     "/:id",
-    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    auth(...APP_ROLES),
     flashSaleController.getFlashSaleByIdController
 );
 
@@ -100,10 +101,6 @@ router.get(
  * @param res - The response object
  * @returns All flash sales
  */
-router.get(
-    "/",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
-    flashSaleController.getAllFlashSalesController
-);
+router.get("/", ...panelRead, flashSaleController.getAllFlashSalesController);
 
 export const flashSaleRoutes = router;
