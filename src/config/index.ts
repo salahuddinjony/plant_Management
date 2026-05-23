@@ -64,6 +64,12 @@ export default {
   cloudinary_api_key: process.env.CLOUDINARY_API_KEY,
   cloudinary_api_secret: process.env.CLOUDINARY_API_SECRET,
   super_admin_password: process.env.SUPER_ADMIN_PASSWORD,
+  smtpHost: process.env.SMTP_HOST || "smtp.gmail.com",
+  smtpPort: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
+  smtpSecure:
+    process.env.SMTP_SECURE !== undefined
+      ? process.env.SMTP_SECURE === "true"
+      : undefined,
   smtpUserName,
   smtpPassword: process.env.SMTP_PASSWORD?.replace(/\s+/g, "").trim(),
   clientUrl: process.env.CLIENT_URL,

@@ -51,6 +51,77 @@ const assertInviterCanGrant = (
     }
 };
 
+/** Send email/SMS first — if this throws, nothing is written to the database. */
+const deliverStaffInviteNotification = async ({
+    name,
+    emailOrPhone,
+    staffRole,
+}: {
+    name: string;
+    emailOrPhone: string;
+    staffRole: TStaffRoleSlug;
+}) => {
+    const plainToken = generateInviteToken();
+    const inviteCode = generateInviteCode();
+    const channel = getIdentifierChannel(emailOrPhone);
+
+    await sendStaffInviteNotification({
+        name,
+        emailOrPhone,
+        channel,
+        staffRole,
+        plainToken,
+        inviteCode,
+    });
+
+    return { plainToken, inviteCode, channel };
+};
+
+const persistStaffInviteRecord = async ({
+    inviterId,
+    userId,
+    name,
+    emailOrPhone,
+    staffRole,
+    permissions,
+    plainToken,
+    inviteCode,
+    channel,
+}: {
+    inviterId: unknown;
+    userId: unknown;
+    name: string;
+    emailOrPhone: string;
+    staffRole: TStaffRoleSlug;
+    permissions: string[];
+    plainToken: string;
+    inviteCode: string;
+    channel: "email" | "sms";
+}) => {
+    const expiryMs = getStaffInviteExpiryMs();
+    const expiresAt = new Date(Date.now() + expiryMs);
+
+    await StaffInviteModel.deleteMany({
+        $or: [{ emailOrPhone }, { userId }],
+    });
+
+    await StaffInviteModel.create({
+        name,
+        emailOrPhone,
+        channel,
+        staffRole,
+        permissions,
+        inviteTokenHash: hashInviteSecret(plainToken),
+        inviteCodeHash: hashInviteSecret(inviteCode),
+        expiresAt,
+        invitedBy: inviterId,
+        isUsed: false,
+        userId,
+    });
+
+    return Math.round(expiryMs / (24 * 60 * 60 * 1000));
+};
+
 export const inviteStaffService = async (
     inviterId: string,
     payload: {
@@ -73,6 +144,7 @@ export const inviteStaffService = async (
 
     const staffRole = payload.staffRole as TStaffRoleSlug;
     const emailOrPhone = normalizeIdentifier(payload.emailOrPhone);
+    const name = payload.name.trim();
     const permissions = resolveStaffPermissions(staffRole, payload.permissions);
 
     assertInviterCanGrant(inviter, permissions);
@@ -92,106 +164,68 @@ export const inviteStaffService = async (
         );
     }
 
+    const delivery = await deliverStaffInviteNotification({
+        name,
+        emailOrPhone,
+        staffRole,
+    });
+
     const placeholderPassword = await hashPassword(
         `${generateInviteToken()}${Date.now()}`
     );
+    const inviterIdStr = String(inviter._id);
 
-    const user =
-        existing ??
-        (await UserModel.create({
-            name: payload.name.trim(),
+    let user = existing;
+    if (existing) {
+        existing.name = name;
+        existing.role = USER_ROLE.STAFF;
+        existing.staffRole = staffRole;
+        existing.permissions = permissions;
+        existing.status = USER_STATUS.INACTIVE;
+        existing.invitedBy = inviterIdStr;
+        if (!existing.password) {
+            existing.password = placeholderPassword;
+        }
+        await existing.save();
+    } else {
+        user = await UserModel.create({
+            name,
             emailOrPhone,
             password: placeholderPassword,
             role: USER_ROLE.STAFF,
             staffRole,
             permissions,
             status: USER_STATUS.INACTIVE,
-            invitedBy: String(inviter._id),
-        }));
-
-    if (existing) {
-        existing.name = payload.name.trim();
-        existing.role = USER_ROLE.STAFF;
-        existing.staffRole = staffRole;
-        existing.permissions = permissions;
-        existing.status = USER_STATUS.INACTIVE;
-        existing.invitedBy = String(inviter._id);
-        if (!existing.password) {
-            existing.password = placeholderPassword;
-        }
-        await existing.save();
+            invitedBy: inviterIdStr,
+        });
     }
 
-    return issueStaffInvite({
-        inviterId: inviter._id,
-        user,
-        name: payload.name.trim(),
-        emailOrPhone,
-        staffRole,
-        permissions,
-        message: "Invite sent successfully",
-    });
-};
-
-const issueStaffInvite = async ({
-    inviterId,
-    user,
-    name,
-    emailOrPhone,
-    staffRole,
-    permissions,
-    message,
-}: {
-    inviterId: unknown;
-    user: { _id: unknown };
-    name: string;
-    emailOrPhone: string;
-    staffRole: TStaffRoleSlug;
-    permissions: string[];
-    message: string;
-}) => {
-    const channel = getIdentifierChannel(emailOrPhone);
-    const expiryMs = getStaffInviteExpiryMs();
-
-    await StaffInviteModel.deleteMany({
-        $or: [{ emailOrPhone }, { userId: user._id }],
-    });
-
-    const plainToken = generateInviteToken();
-    const inviteCode = generateInviteCode();
-    const expiresAt = new Date(Date.now() + expiryMs);
-
-    await StaffInviteModel.create({
-        name,
-        emailOrPhone,
-        channel,
-        staffRole,
-        permissions,
-        inviteTokenHash: hashInviteSecret(plainToken),
-        inviteCodeHash: hashInviteSecret(inviteCode),
-        expiresAt,
-        invitedBy: inviterId,
-        isUsed: false,
-        userId: user._id,
-    });
-
-    const notification = await sendStaffInviteNotification({
-        name,
-        emailOrPhone,
-        channel,
-        staffRole,
-        plainToken,
-        inviteCode,
-    });
-
-    const expiresInDays = Math.round(expiryMs / (24 * 60 * 60 * 1000));
+    let expiresInDays: number;
+    try {
+        expiresInDays = await persistStaffInviteRecord({
+            inviterId: inviter._id,
+            userId: user!._id,
+            name,
+            emailOrPhone,
+            staffRole,
+            permissions,
+            plainToken: delivery.plainToken,
+            inviteCode: delivery.inviteCode,
+            channel: delivery.channel,
+        });
+    } catch (error) {
+        if (!existing) {
+            await UserModel.findByIdAndDelete(user!._id);
+        }
+        throw error;
+    }
 
     return {
-        message,
+        message: "Invite sent successfully",
         emailOrPhone,
         staffRole,
         permissions,
-        channel: notification.channel,
+        channel: delivery.channel,
         expiresInDays,
     };
 };
@@ -228,21 +262,38 @@ export const resendStaffInviteService = async (inviterId: string, staffUserId: s
 
     assertInviterCanGrant(inviter, permissions);
 
+    const delivery = await deliverStaffInviteNotification({
+        name: staffUser.name,
+        emailOrPhone: staffUser.emailOrPhone,
+        staffRole,
+    });
+
+    const expiresInDays = await persistStaffInviteRecord({
+        inviterId: inviter._id,
+        userId: staffUser._id,
+        name: staffUser.name,
+        emailOrPhone: staffUser.emailOrPhone,
+        staffRole,
+        permissions,
+        plainToken: delivery.plainToken,
+        inviteCode: delivery.inviteCode,
+        channel: delivery.channel,
+    });
+
     staffUser.status = USER_STATUS.INACTIVE;
     staffUser.accessToken = undefined;
     staffUser.refreshToken = undefined;
     staffUser.invitedBy = String(inviter._id);
     await staffUser.save();
 
-    return issueStaffInvite({
-        inviterId: inviter._id,
-        user: staffUser,
-        name: staffUser.name,
+    return {
+        message: "Invite resent successfully",
         emailOrPhone: staffUser.emailOrPhone,
         staffRole,
         permissions,
-        message: "Invite resent successfully",
-    });
+        channel: delivery.channel,
+        expiresInDays,
+    };
 };
 
 const findActiveInviteBySecret = async (secret: string) => {

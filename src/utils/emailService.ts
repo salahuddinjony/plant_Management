@@ -4,30 +4,72 @@ import type SMTPTransport from "nodemailer/lib/smtp-transport";
 import config from "../config";
 import AppError from "../errors/AppError";
 
+const CONNECTION_TIMEOUT_MS = 20_000;
+
 const normalizeSmtpPassword = (password?: string) =>
     password?.replace(/\s+/g, "").trim() || "";
 
-const buildTransportOptions = (): SMTPTransport.Options => {
-    const port = Number(process.env.SMTP_PORT) || 465;
-    const secure =
-        process.env.SMTP_SECURE !== undefined
-            ? process.env.SMTP_SECURE === "true"
-            : port === 465;
-
-    return {
-        host: process.env.SMTP_HOST || "smtp.gmail.com",
-        port,
-        secure,
-        auth: {
-            user: config.smtpUserName,
-            pass: normalizeSmtpPassword(config.smtpPassword),
-        },
-    };
+type SmtpProfile = {
+    label: string;
+    port: number;
+    secure: boolean;
 };
 
-let transporter = nodemailer.createTransport(buildTransportOptions());
+/** Gmail-friendly profiles — 587 first (works on more networks/VPS than 465). */
+const GMAIL_SMTP_PROFILES: SmtpProfile[] = [
+    { label: "587-STARTTLS", port: 587, secure: false },
+    { label: "465-SSL", port: 465, secure: true },
+];
 
-const ensureMailerReady = async () => {
+const buildTransportOptions = (profile: SmtpProfile): SMTPTransport.Options => ({
+    host: config.smtpHost,
+    port: profile.port,
+    secure: profile.secure,
+    requireTLS: profile.port === 587,
+    auth: {
+        user: config.smtpUserName,
+        pass: normalizeSmtpPassword(config.smtpPassword),
+    },
+    connectionTimeout: CONNECTION_TIMEOUT_MS,
+    greetingTimeout: CONNECTION_TIMEOUT_MS,
+    socketTimeout: CONNECTION_TIMEOUT_MS,
+    tls: {
+        minVersion: "TLSv1.2",
+        rejectUnauthorized: true,
+    },
+});
+
+const getSmtpProfiles = (): SmtpProfile[] => {
+    if (config.smtpPort) {
+        const port = config.smtpPort;
+        const secure =
+            config.smtpSecure !== undefined ? config.smtpSecure : port === 465;
+        return [{ label: `custom-${port}`, port, secure }];
+    }
+    return GMAIL_SMTP_PROFILES;
+};
+
+let activeTransporter: nodemailer.Transporter | null = null;
+let activeProfileLabel: string | null = null;
+
+const createTransporter = (profile: SmtpProfile) =>
+    nodemailer.createTransport(buildTransportOptions(profile));
+
+const isConnectionError = (error: unknown): boolean => {
+    if (!(error instanceof Error)) return false;
+    const code = (error as NodeJS.ErrnoException).code;
+    const msg = error.message.toLowerCase();
+    return (
+        code === "ETIMEDOUT" ||
+        code === "ECONNREFUSED" ||
+        code === "ENOTFOUND" ||
+        code === "ESOCKET" ||
+        msg.includes("timeout") ||
+        msg.includes("connect")
+    );
+};
+
+const getWorkingTransporter = async (): Promise<nodemailer.Transporter> => {
     if (!config.smtpUserName || !config.smtpPassword) {
         throw new AppError(
             status.INTERNAL_SERVER_ERROR,
@@ -35,21 +77,59 @@ const ensureMailerReady = async () => {
         );
     }
 
-    try {
-        await transporter.verify();
-    } catch (error) {
-        transporter = nodemailer.createTransport(buildTransportOptions());
+    if (activeTransporter) {
+        return activeTransporter;
+    }
+
+    const profiles = getSmtpProfiles();
+    const errors: string[] = [];
+
+    for (const profile of profiles) {
+        const transport = createTransporter(profile);
         try {
-            await transporter.verify();
-        } catch (retryError) {
-            const message =
-                retryError instanceof Error ? retryError.message : "SMTP verify failed";
-            console.error("SMTP verification failed:", message);
-            throw new AppError(
-                status.INTERNAL_SERVER_ERROR,
-                `Failed to send email. Check SMTP app password (no spaces) and Gmail settings. ${message}`
-            );
+            await transport.verify();
+            activeTransporter = transport;
+            activeProfileLabel = profile.label;
+            console.info(`SMTP ready (${config.smtpHost}:${profile.port}, ${profile.label})`);
+            return transport;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            errors.push(`${profile.label}: ${message}`);
+            if (!isConnectionError(error)) {
+                throw new AppError(
+                    status.INTERNAL_SERVER_ERROR,
+                    `SMTP authentication failed. Use a Gmail App Password (16 chars, no spaces). ${message}`
+                );
+            }
         }
+    }
+
+    console.error("SMTP verification failed:", errors.join(" | "));
+    throw new AppError(
+        status.INTERNAL_SERVER_ERROR,
+        `Cannot reach mail server (${config.smtpHost}). Try SMTP_PORT=587 and SMTP_SECURE=false, or check firewall/VPS outbound SMTP.`
+    );
+};
+
+const resetTransporter = () => {
+    activeTransporter = null;
+    activeProfileLabel = null;
+};
+
+const sendWithTransporter = async (
+    mailOptions: nodemailer.SendMailOptions
+): Promise<void> => {
+    const transport = await getWorkingTransporter();
+    try {
+        await transport.sendMail(mailOptions);
+    } catch (error) {
+        if (isConnectionError(error)) {
+            resetTransporter();
+            const retryTransport = await getWorkingTransporter();
+            await retryTransport.sendMail(mailOptions);
+            return;
+        }
+        throw error;
     }
 };
 
@@ -112,8 +192,6 @@ export const sendEmail = async ({
     title?: string;
     intro?: string;
 }) => {
-    await ensureMailerReady();
-
     try {
         const htmlContent = generateEmailTemplate({
             username: username || email.split("@")[0],
@@ -123,7 +201,7 @@ export const sendEmail = async ({
             intro,
         });
 
-        await transporter.sendMail({
+        await sendWithTransporter({
             from: `"Nursery Bazar BD" <${config.smtpUserName}>`,
             to: email,
             subject,
@@ -154,10 +232,8 @@ export const sendHtmlEmail = async ({
     html: string;
     text?: string;
 }) => {
-    await ensureMailerReady();
-
     try {
-        await transporter.sendMail({
+        await sendWithTransporter({
             from: `"Nursery Bazar BD" <${config.smtpUserName}>`,
             to: email,
             subject,
