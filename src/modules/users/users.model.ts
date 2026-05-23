@@ -1,5 +1,6 @@
 import { Model, model, Schema } from "mongoose";
 import { USER_ROLE, USER_STATUS } from "../../constants/status.constants";
+import { hashPassword, isPasswordHashed } from "../auth/auth.utils";
 import { TUser } from "./users.interface";
 
 export interface IUserModel extends Model<TUser> {
@@ -65,6 +66,17 @@ const UserSchema = new Schema<TUser, IUserModel>(
   },
   { timestamps: true }
 );
+
+UserSchema.pre("save", async function () {
+  if (!this.isModified("password")) {
+    return;
+  }
+
+  const password = this.password;
+  if (password && !isPasswordHashed(password)) {
+    this.password = await hashPassword(password);
+  }
+});
 
 UserSchema.statics.isUserExists = async function (id: string) {
   return await this.findById(id).select("+password");

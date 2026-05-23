@@ -22,45 +22,41 @@ export const generateToken = async (
   });
 };
 
+export const isPasswordHashed = (value: string): boolean =>
+  typeof value === "string" && value.startsWith("$argon2");
+
 export const hashPassword = async (password: string): Promise<string> => {
   try {
-    const hash = await argon2.hash(password);
-    return hash;
-  } catch (err) {
+    return await argon2.hash(password);
+  } catch {
     throw new Error("Error hashing the password");
   }
+};
+
+/** Verify plain password against stored value (argon2 hash or legacy plain text). */
+export const verifyUserPassword = async (
+  plainTextPassword: string,
+  storedPassword: string
+): Promise<boolean> => {
+  if (!storedPassword || !plainTextPassword) {
+    return false;
+  }
+
+  if (isPasswordHashed(storedPassword)) {
+    try {
+      return await argon2.verify(storedPassword, plainTextPassword);
+    } catch {
+      return false;
+    }
+  }
+
+  return storedPassword === plainTextPassword;
 };
 
 export const comparePasswords = async (
   hashedPassword: string,
   plainTextPassword: string
-): Promise<boolean> => {
-  try {
-    console.log("=== Password Comparison Debug ===");
-    console.log("Hashed password:", hashedPassword);
-    console.log("Hashed password type:", typeof hashedPassword);
-    console.log("Hashed password length:", hashedPassword?.length);
-    console.log("Plain text password:", plainTextPassword);
-    console.log("Plain text password type:", typeof plainTextPassword);
-    console.log("Plain text password length:", plainTextPassword?.length);
-
-    if (!hashedPassword || !plainTextPassword) {
-      console.log("Missing password values");
-      throw new Error("Password values cannot be empty");
-    }
-
-    console.log("Starting argon2.verify...");
-    const result = await argon2.verify(hashedPassword, plainTextPassword);
-    console.log("Argon2.verify result:", result);
-    console.log("=== End Password Comparison ===");
-    return result;
-  } catch (err) {
-    console.error("=== Error in comparePasswords ===");
-    console.error("Error:", err);
-    console.error("=== End Error ===");
-    throw new Error("Invalid password");
-  }
-};
+): Promise<boolean> => verifyUserPassword(plainTextPassword, hashedPassword);
 
 export const verifyAccessToken = (token: string) => {
   const decoded = jwt.verify(token, config.jwtAccessSecret as string);

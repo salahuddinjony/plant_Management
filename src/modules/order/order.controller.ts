@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
 import {
+    buyNowOrderService,
     cancelOrderService,
     createOrderService,
     getAllOrdersService,
@@ -16,6 +17,37 @@ import {
  * @param req Request
  * @param res Response
  */
+export const buyNowOrder = catchAsync(async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    const {
+        productId,
+        quantity,
+        shippingAddressId,
+        discountCode,
+        paymentMethod,
+        transactionId,
+        notes,
+    } = req.body;
+
+    const order = await buyNowOrderService(
+        userId,
+        productId,
+        quantity,
+        shippingAddressId,
+        discountCode,
+        paymentMethod,
+        transactionId,
+        notes
+    );
+
+    sendResponse(res, {
+        success: true,
+        statusCode: 201,
+        message: "Order placed successfully",
+        data: order,
+    });
+});
+
 export const createOrder = catchAsync(async (req: Request, res: Response) => {
     const userId = req.user?.id;
     const { shippingAddressId, selectedProductIds, discountCode, paymentMethod, transactionId, notes } =
@@ -154,6 +186,7 @@ export const cancelOrder = catchAsync(async (req: Request, res: Response) => {
 });
 
 export const orderController = {
+    buyNowOrder,
     createOrder,
     getOrder,
     getOrders,

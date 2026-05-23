@@ -2,483 +2,388 @@ import status from "http-status";
 import { JwtPayload } from "jsonwebtoken";
 import { USER_ROLE, USER_STATUS } from "../../constants/status.constants";
 import AppError from "../../errors/AppError";
-import { TUser, TUserRole } from "../users/users.interface";
+import { normalizeIdentifier } from "../../utils/identifierChannel.util";
+import { OtpModel } from "../otp/otp.model";
+import { createAndSendOtp, verifyOtp } from "../otp/otp.service";
+import { TOtpPurpose } from "../otp/otp.constants";
+import { TUserRole } from "../users/users.interface";
 import { UserModel } from "../users/users.model";
 import { TSignUp } from "./auth.interface";
 import {
-  generateToken,
-  verifyAccessToken
+    PENDING_SIGNUP_TTL_MS,
+    PendingSignupModel,
+} from "./pending-signup.model";
+import {
+    generateToken,
+    hashPassword,
+    isPasswordHashed,
+    TPayload,
+    verifyAccessToken,
+    verifyUserPassword,
 } from "./auth.utils";
+import {
+    createPasswordResetSession,
+    consumePasswordResetSession,
+} from "./password-reset-session.service";
 import { TLogin } from "./auth.validation";
 
+const FORGOT_PASSWORD_GENERIC_MESSAGE =
+    "If an account exists with this email or phone, an OTP has been sent.";
 
-
-// ------------- signup service -------------------
-/**
- * Handles user signup by creating a new user.
- * @param {TSignUp} payload - The signup payload containing user details (name, emailOrPhone, password).
- * @returns {Promise<Partial<TUser>>} - The created user data.
- * @throws {AppError} - If user creation fails.
- */
-const signUpService = async (payload: TSignUp) => {
-  const requestedRole = (payload as TSignUp & { role?: string }).role;
-
-  if (requestedRole === USER_ROLE.SUPER_ADMIN) {
-    throw new AppError(
-      status.FORBIDDEN,
-      "Super Admin cannot be created via signup. Only the seeded super admin is allowed."
-    );
-  }
-
-  let resolvedRole: TUserRole = USER_ROLE.USER;
-  if (requestedRole === USER_ROLE.ADMIN) {
-    const activeAdminCount = await UserModel.countDocuments({
-      role: USER_ROLE.ADMIN,
-      isDeleted: { $ne: true },
-      status: { $nin: [USER_STATUS.DELETED] },
+const sanitizeUser = (user: { toObject: (opts?: object) => Record<string, unknown> }) =>
+    user.toObject({
+        versionKey: false,
+        transform: (_doc: unknown, ret: Record<string, unknown>) => {
+            delete ret.password;
+            delete ret.accessToken;
+            delete ret.refreshToken;
+            return ret;
+        },
     });
-    if (activeAdminCount >= 1) {
-      throw new AppError(
-        status.CONFLICT,
-        "An admin account already exists. Only one admin is allowed."
-      );
-    }
-    resolvedRole = USER_ROLE.ADMIN;
-  }
 
-  // Check if user already exists
-  const existingUser = await UserModel.findOne({ emailOrPhone: payload.emailOrPhone });
-
-  if (existingUser) {
-    throw new AppError(status.BAD_REQUEST, "User already exists");
-  }
-
-  try {
-    const userData: Partial<TUser> = {
-      name: payload.name,
-      emailOrPhone: payload.emailOrPhone,
-      password: payload.password,
-      profilePicture: payload.profilePicture,
-      role: resolvedRole,
+const issueTokensForUser = async (user: {
+    _id: unknown;
+    emailOrPhone: string;
+    role?: string;
+}) => {
+    const jwtPayload: TPayload = {
+        id: user._id as TPayload["id"],
+        emailOrPhone: user.emailOrPhone,
+        role: user.role as string,
     };
+    const jwtAccessToken = await generateToken(jwtPayload);
+    const jwtRefreshToken = await generateToken(jwtPayload, true);
 
-    // Create a new user
-    const newUser = await UserModel.create(userData);
+    const updatedUser = await UserModel.findByIdAndUpdate(
+        user._id,
+        { accessToken: jwtAccessToken, refreshToken: jwtRefreshToken },
+        { new: true }
+    );
 
-    if (!newUser) {
-      throw new AppError(status.BAD_REQUEST, "Failed to create new user!");
+    return {
+        user: updatedUser,
+        accessToken: jwtAccessToken,
+        refreshToken: jwtRefreshToken,
+    };
+};
+
+const signUpService = async (payload: TSignUp) => {
+    const requestedRole = (payload as TSignUp & { role?: string }).role;
+
+    if (requestedRole === USER_ROLE.SUPER_ADMIN) {
+        throw new AppError(
+            status.FORBIDDEN,
+            "Super Admin cannot be created via signup. Only the seeded super admin is allowed."
+        );
     }
 
-    return newUser.toObject({
-      versionKey: false,
-      transform: (doc, ret: any) => {
-        delete ret.password;
-        return ret;
-      },
+    let resolvedRole: TUserRole = USER_ROLE.USER;
+    if (requestedRole === USER_ROLE.ADMIN) {
+        const activeAdminCount = await UserModel.countDocuments({
+            role: USER_ROLE.ADMIN,
+            isDeleted: { $ne: true },
+            status: { $nin: [USER_STATUS.DELETED, USER_STATUS.INACTIVE] },
+        });
+        if (activeAdminCount >= 1) {
+            throw new AppError(
+                status.CONFLICT,
+                "An admin account already exists. Only one admin is allowed."
+            );
+        }
+        resolvedRole = USER_ROLE.ADMIN;
+    }
+
+    const emailOrPhone = normalizeIdentifier(payload.emailOrPhone);
+    const existingUser = await UserModel.findOne({ emailOrPhone });
+
+    if (existingUser) {
+        throw new AppError(status.BAD_REQUEST, "User already exists");
+    }
+
+    const expiresAt = new Date(Date.now() + PENDING_SIGNUP_TTL_MS);
+    const hashedPassword = await hashPassword(payload.password);
+
+    try {
+        await PendingSignupModel.findOneAndUpdate(
+            { emailOrPhone },
+            {
+                name: payload.name,
+                emailOrPhone,
+                password: hashedPassword,
+                profilePicture: payload.profilePicture,
+                role: resolvedRole,
+                expiresAt,
+            },
+            { upsert: true, new: true }
+        );
+
+        const otpResult = await createAndSendOtp({
+            identifier: emailOrPhone,
+            purpose: "signup",
+            userName: payload.name,
+        });
+
+        return {
+            emailOrPhone,
+            ...otpResult,
+            message:
+                "OTP sent. Verify to complete registration. User is created only after successful OTP verification.",
+        };
+    } catch (error) {
+        await PendingSignupModel.deleteOne({ emailOrPhone });
+        await OtpModel.updateMany(
+            { identifier: emailOrPhone, purpose: "signup", consumedAt: null },
+            { $set: { consumedAt: new Date() } }
+        );
+        throw error;
+    }
+};
+
+const verifySignupOtpService = async (emailOrPhone: string, otp: string) => {
+    const normalized = normalizeIdentifier(emailOrPhone);
+    await verifyOtp({ identifier: normalized, purpose: "signup", code: otp });
+
+    const pending = await PendingSignupModel.findOne({ emailOrPhone: normalized }).select(
+        "+password"
+    );
+
+    if (!pending) {
+        throw new AppError(
+            status.BAD_REQUEST,
+            "No pending registration found. Please sign up again."
+        );
+    }
+
+    if (pending.expiresAt <= new Date()) {
+        await PendingSignupModel.deleteOne({ emailOrPhone: normalized });
+        throw new AppError(
+            status.BAD_REQUEST,
+            "Registration session expired. Please sign up again."
+        );
+    }
+
+    const existingUser = await UserModel.findOne({ emailOrPhone: normalized });
+    if (existingUser) {
+        await PendingSignupModel.deleteOne({ emailOrPhone: normalized });
+        throw new AppError(status.BAD_REQUEST, "User already exists");
+    }
+
+    const newUser = await UserModel.create({
+        name: pending.name,
+        emailOrPhone: normalized,
+        password: pending.password,
+        profilePicture: pending.profilePicture,
+        role: pending.role,
+        status: USER_STATUS.ACTIVE,
     });
-  } catch (error: any) {
-    throw new AppError(status.BAD_REQUEST, error.message || "Signup failed");
-  }
+
+    await PendingSignupModel.deleteOne({ emailOrPhone: normalized });
+
+    const tokens = await issueTokensForUser(newUser);
+    return {
+        message: "Account created and verified successfully",
+        ...tokens,
+        user: sanitizeUser(newUser),
+    };
 };
 
-// ------------- login service -------------------
-/**
- * Handles user login by verifying credentials and generating access/refresh tokens.
- * @param {TLogin} payload - The login payload containing emailOrPhone and password.
- * @returns {Promise<Object>} - The user data with tokens.
- * @throws {AppError} - If credentials are invalid or user is blocked/deleted.
- */
-const loginService = async (payload: TLogin) => {
-  // Find user by emailOrPhone and include password for comparison
-  const user = await UserModel.findOne({ emailOrPhone: payload.emailOrPhone }).select("+password");
+const resendOtpService = async (emailOrPhone: string, purpose: TOtpPurpose) => {
+    const normalized = normalizeIdentifier(emailOrPhone);
 
-  if (!user) {
-    throw new AppError(status.NOT_FOUND, "This user is not found");
-  }
+    if (purpose === "signup") {
+        if (await UserModel.exists({ emailOrPhone: normalized })) {
+            return {
+                message: "If a pending registration exists, an OTP has been sent.",
+            };
+        }
 
-  // Check is deleted softly
-  if (user.isDeleted || user.status === USER_STATUS.DELETED) {
-    throw new AppError(status.FORBIDDEN, "This user has been deleted");
-  }
+        const pending = await PendingSignupModel.findOne({ emailOrPhone: normalized });
+        if (!pending) {
+            throw new AppError(
+                status.BAD_REQUEST,
+                "No pending registration. Please complete sign-up first."
+            );
+        }
 
-  // Check status
-  if (user.status === USER_STATUS.BLOCKED) {
-    throw new AppError(status.FORBIDDEN, "This user is blocked");
-  }
-
-  // Check if password matched
-  if (payload.password != user.password) {
-    throw new AppError(status.FORBIDDEN, "Your password is incorrect");
-  }
-
-  const jwtPayload = { id: (user as any)._id, emailOrPhone: user.emailOrPhone, role: user.role as string };
-  // Generate tokens
-  const jwtAccessToken = await generateToken(jwtPayload);
-  const jwtRefreshToken = await generateToken(jwtPayload, true);
-
-  // Update user with tokens
-  const updatedUser = await UserModel.findByIdAndUpdate(
-    (user as any)._id,
-    {
-      accessToken: jwtAccessToken,
-      refreshToken: jwtRefreshToken,
-    },
-    { new: true }
-  );
-
-  return {
-    user: updatedUser,
-    accessToken: jwtAccessToken,
-    refreshToken: jwtRefreshToken,
-  };
-};
-
-/**
- * Resend OTP for unverified email
- * @param email 
- * @returns 
- */
-// ============================================================================
-// COMMENTED OUT: Old resendOtp implementation - replaced with resendOtpService below
-// ============================================================================
-// const resendOtpService = async (email: string) => {
-//   const user = await UserModel.findOne({ email });
-
-//   if (!user) {
-//     throw new AppError(status.NOT_FOUND, "This user is not found");
-//   }
-
-//   if (user.isEmailVerified) {
-//     throw new AppError(status.FORBIDDEN, "Your email is already verified");
-//   }
-
-//   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-//   const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
-
-//   // send OTP to user
-//   const verificationLink = `${config.clientUrl}/auth/verify-email?token=${otp}&email=${email}`;
-//   await sendEmail({
-//     email,
-//     token: otp,
-//     username: user.name,
-//     verificationLink,
-//   });
-
-//   const updatedUser = await UserModel.findByIdAndUpdate(
-//     (user as any)._id,
-//     {
-//       emailVerificationToken: otp,
-//       emailVerificationTokenExpires: otpExpires,
-//     },
-//     { new: true }
-//   );
-
-//   return updatedUser;
-// };
-
-// ------------- logout service -------------------
-// const signOutService = async (userId: string, token: string) => {
-//   const decoded = verifyAccessToken(token) as JwtPayload;
-
-//   if (decoded.id !== userId) {
-//     throw new AppError(status.UNAUTHORIZED, "Unauthorized");
-//   }
-
-//   const updatedUser = await UserModel.findByIdAndUpdate(
-//     userId,
-//     {
-//       accessToken: "",
-//       refreshToken: "",
-//     },
-//     { new: true }
-//   );
-
-//   return updatedUser;
-// };
-
-// ------------- refresh token service -------------------
-// const refreshTokenService = async (id: string, token: string) => {
-//   const user = await UserModel.findById(id);
-
-//   if (!user || !user.refreshToken || user.refreshToken !== token) {
-//     throw new AppError(status.UNAUTHORIZED, "Refresh Token not found in database");
-//   }
-
-//   const decoded = verifyRefreshToken(token) as JwtPayload;
-//   if (!decoded) {
-//     throw new AppError(status.UNAUTHORIZED, "Invalid Refresh Token");
-//   }
-
-//   const accessToken = await generateToken(
-//     { id: (user as any)._id, email: user.email, role: user.role as string },
-//     false
-//   );
-
-//   const updatedUser = await UserModel.findByIdAndUpdate(
-//     (user as any)._id,
-//     { accessToken: accessToken },
-//     { new: true }
-//   );
-
-//   return updatedUser;
-// };
-
-// ------------- verify email service -------------------
-// COMMENTED OUT: Email verification is no longer required
-// const verifyEmailService = async (
-//   email: string,
-//   providedOtp: string,
-//   isLink: boolean = false
-// ) => {
-//   const trimmedOtp = providedOtp.trim();
-//   const user = await UserModel.findOne({ email });
-
-//   if (!user) {
-//     throw new AppError(status.NOT_FOUND, "User not found");
-//   }
-
-//   if (user.isEmailVerified) {
-//     throw new AppError(status.BAD_REQUEST, "Email already verified");
-//   }
-
-//   if (!user.emailVerificationOtp) {
-//     throw new AppError(status.BAD_REQUEST, "No verification OTP found");
-//   }
-
-//   const isTokenValid = user.emailVerificationOtp === trimmedOtp;
-//   const isTokenNotExpired =
-//     user.emailVerificationOtpExpires &&
-//     user.emailVerificationOtpExpires > new Date();
-
-//   if (!isTokenValid) {
-//     throw new AppError(status.UNAUTHORIZED, "Invalid verification code");
-//   }
-
-//   if (!isTokenNotExpired) {
-//     throw new AppError(status.UNAUTHORIZED, "Verification code has expired");
-//   }
-
-//   user.isEmailVerified = true;
-//   user.emailVerificationOtp = undefined;
-//   user.emailVerificationOtpExpires = undefined;
-
-//   if (isLink) {
-//     const jwtPayload = { id: (user as any)._id, email: user.email, role: user.role as string };
-//     const accessToken = await generateToken(jwtPayload);
-//     const refreshToken = await generateToken(jwtPayload, true);
-
-//     user.accessToken = accessToken;
-//     user.refreshToken = refreshToken;
-//   }
-
-//   await user.save();
-
-//   return {
-//     message: "✅ Email verified successfully",
-//     accessToken: user.accessToken,
-//     refreshToken: user.refreshToken,
-//   };
-// };
-
-/**
- * Resend OTP for unverified email
- * COMMENTED OUT: Email verification is no longer required
- * @param email 
- * @returns 
- */
-// const resendOtpService = async (email: string) => {
-//   const user = await UserModel.findOne({ email });
-
-//   if (!user) {
-//     throw new AppError(status.NOT_FOUND, "User not found");
-//   }
-
-//   if (user.isEmailVerified) {
-//     throw new AppError(status.BAD_REQUEST, "Email already verified");
-//   }
-
-//   const otpToken = Math.floor(100000 + Math.random() * 900000).toString();
-//   const otpExpiration = new Date(Date.now() + 5 * 60 * 1000);
-
-//   user.emailVerificationOtp = otpToken;
-//   user.emailVerificationOtpExpires = otpExpiration;
-//   await user.save();
-
-//   const verificationLink = `${config.clientUrl}/auth/verify-email?token=${otpToken}&email=${email}`;
-//   await sendEmail({
-//     email,
-//     token: otpToken,
-//     username: user.name,
-//     verificationLink,
-//   });
-
-//   return {
-//     message: "Verification email sent successfully",
-//     email: user.email,
-//   };
-// };
-
-// ============================================================================
-// COMMENTED OUT: Alternative forgot password implementation using OTP
-// This was replaced with token-based reset (requestPasswordResetService)
-// ============================================================================
-// /**
-//  * Send OTP if forgot password.
-//  * @param email 
-//  * @returns 
-//  */
-// const forgotPasswordService = async (email: string) => {
-//   const user = await UserModel.findOne({ email });
-
-//   if (!user) {
-//     throw new AppError(status.NOT_FOUND, "User not found");
-//   }
-//   if (user.isDeleted || user.status === USER_STATUS.DELETED) {
-//     throw new AppError(status.FORBIDDEN, "This user has been deleted");
-//   }
-//   const otpToken = Math.floor(100000 + Math.random() * 900000).toString();
-//   const otpExpiration = new Date(Date.now() + 5 * 60 * 1000);
-
-//   await UserModel.findByIdAndUpdate(
-//     (user as any)._id,
-//     {
-//       passwordResetOtp: otpToken,
-//       passwordResetOtpExpires: otpExpiration,
-//     },
-//     { new: true }
-//   );
-
-//   const resetLink = `${config.clientUrl}/auth/reset-password?token=${otpToken}&email=${email}`;
-//   await sendEmail({
-//     email,
-//     token: otpToken,
-//     username: user.name,
-//     verificationLink: resetLink,
-//   });
-
-//   return {
-//     message: "If an account exists with this email, a reset link has been sent",
-//   };
-// };
-
-
-// ------------------ verify JWT ----------------------------
-const verifyAccessTokenService = (token: string) => {
-  try {
-    const decoded = verifyAccessToken(token) as JwtPayload;
-    if (!decoded) {
-      throw new AppError(status.UNAUTHORIZED, "Invalid access token");
+        return createAndSendOtp({
+            identifier: normalized,
+            purpose: "signup",
+            userName: pending.name,
+        });
     }
-    return decoded;
-  } catch (error: any) {
-    throw new AppError(status.UNAUTHORIZED, error.message);
-  }
+
+    if (purpose === "forgot_password") {
+        const user = await UserModel.findOne({ emailOrPhone: normalized });
+        if (!user || user.isDeleted || user.status === USER_STATUS.DELETED) {
+            return { message: FORGOT_PASSWORD_GENERIC_MESSAGE };
+        }
+        if (user.status === USER_STATUS.BLOCKED) {
+            return { message: FORGOT_PASSWORD_GENERIC_MESSAGE };
+        }
+        await createAndSendOtp({
+            identifier: normalized,
+            purpose: "forgot_password",
+            userId: String(user._id),
+            userName: user.name,
+        });
+        return { message: FORGOT_PASSWORD_GENERIC_MESSAGE };
+    }
+
+    throw new AppError(
+        status.BAD_REQUEST,
+        "Invalid purpose. Use signup or forgot_password."
+    );
 };
 
-// ------------- change password service -------------------
+const loginService = async (payload: TLogin) => {
+    const emailOrPhone = normalizeIdentifier(payload.emailOrPhone);
+    const user = await UserModel.findOne({ emailOrPhone }).select("+password");
+
+    if (!user) {
+        throw new AppError(status.NOT_FOUND, "This user is not found");
+    }
+
+    if (user.isDeleted || user.status === USER_STATUS.DELETED) {
+        throw new AppError(status.FORBIDDEN, "This user has been deleted");
+    }
+
+    if (user.status === USER_STATUS.BLOCKED) {
+        throw new AppError(status.FORBIDDEN, "This user is blocked");
+    }
+
+    if (user.status === USER_STATUS.INACTIVE) {
+        throw new AppError(
+            status.FORBIDDEN,
+            "Account not verified. Complete OTP verification or resend signup OTP."
+        );
+    }
+
+    const passwordMatches = await verifyUserPassword(payload.password, user.password);
+    if (!passwordMatches) {
+        throw new AppError(status.FORBIDDEN, "Your password is incorrect");
+    }
+
+    if (!isPasswordHashed(user.password)) {
+        user.password = await hashPassword(payload.password);
+        await user.save();
+    }
+
+    return issueTokensForUser(user);
+};
+
+const verifyAccessTokenService = (token: string) => {
+    try {
+        const decoded = verifyAccessToken(token) as JwtPayload;
+        if (!decoded) {
+            throw new AppError(status.UNAUTHORIZED, "Invalid access token");
+        }
+        return decoded;
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Invalid token";
+        throw new AppError(status.UNAUTHORIZED, message);
+    }
+};
+
 const changePasswordService = async (
-  userId: string,
-  oldPass: string,
-  newPass: string
+    userId: string,
+    oldPass: string,
+    newPass: string
 ) => {
-  const user = await UserModel.findById(userId).select("+password");
+    const user = await UserModel.findById(userId).select("+password");
 
-  if (!user) {
-    throw new AppError(status.NOT_FOUND, "User not found");
-  }
+    if (!user) {
+        throw new AppError(status.NOT_FOUND, "User not found");
+    }
 
-  // if (!(await comparePasswords(user.password, oldPass))) {
-  //   throw new AppError(status.FORBIDDEN, "Incorrect old password");
-  // }
+    const oldPasswordMatches = await verifyUserPassword(oldPass, user.password);
+    if (!oldPasswordMatches) {
+        throw new AppError(status.FORBIDDEN, "Incorrect old password");
+    }
 
-  if (oldPass !== user.password) {
-    throw new AppError(status.FORBIDDEN, "Incorrect old password");
-  }
+    user.password = newPass;
+    user.passwordChangedAt = new Date();
+    user.accessToken = undefined;
+    user.refreshToken = undefined;
+    await user.save();
 
-  // user.password = await hashPassword(newPass);
-  user.password = newPass;
-  user.passwordChangedAt = new Date();
-  await user.save();
-
-  return { message: "Password changed successfully" };
+    return { message: "Password changed successfully" };
 };
 
-// ------------- Forgot password service ----------------------------
-/**
- * Check if user exists by emailOrPhone
- * @param emailOrPhone - Email or phone number
- * @returns User data if exists
- */
 const forgotPasswordService = async (emailOrPhone: string) => {
-  const user = await UserModel.findOne({ emailOrPhone });
+    const normalized = normalizeIdentifier(emailOrPhone);
+    const user = await UserModel.findOne({ emailOrPhone: normalized });
 
-  if (!user) {
-    throw new AppError(status.NOT_FOUND, "User not found with this email or phone");
-  }
+    if (
+        user &&
+        !user.isDeleted &&
+        user.status !== USER_STATUS.DELETED &&
+        user.status !== USER_STATUS.BLOCKED
+    ) {
+        await createAndSendOtp({
+            identifier: normalized,
+            purpose: "forgot_password",
+            userId: String(user._id),
+            userName: user.name,
+        });
+    }
 
-  // Check if user is deleted or blocked
-  if (user.isDeleted || user.status === USER_STATUS.DELETED) {
-    throw new AppError(status.FORBIDDEN, "This user has been deleted");
-  }
-
-  if (user.status === USER_STATUS.BLOCKED) {
-    throw new AppError(status.FORBIDDEN, "This user is blocked");
-  }
-
-  // Return user data without sensitive information
-  return user.toObject({
-    versionKey: false,
-    transform: (doc, ret: any) => {
-      delete ret.password;
-      delete ret.accessToken;
-      delete ret.refreshToken;
-      return ret;
-    },
-  });
+    return { message: FORGOT_PASSWORD_GENERIC_MESSAGE };
 };
 
-// ------------- Reset password service ----------------------------
-/**
- * Reset user password using userId
- * @param userId - User ID
- * @param newPassword - New password
- * @returns Success message
- */
-const resetPasswordService = async (
-  userId: string,
-  newPassword: string
-) => {
-  const user = await UserModel.findById(userId);
+const verifyForgotPasswordOtpService = async (emailOrPhone: string, otp: string) => {
+    const normalized = normalizeIdentifier(emailOrPhone);
+    await verifyOtp({ identifier: normalized, purpose: "forgot_password", code: otp });
 
-  if (!user) {
-    throw new AppError(status.NOT_FOUND, "User not found");
-  }
+    const user = await UserModel.findOne({ emailOrPhone: normalized });
 
-  // Check if user is deleted or blocked
-  if (user.isDeleted || user.status === USER_STATUS.DELETED) {
-    throw new AppError(status.FORBIDDEN, "This user has been deleted");
-  }
+    if (!user) {
+        throw new AppError(status.NOT_FOUND, "User not found");
+    }
 
-  if (user.status === USER_STATUS.BLOCKED) {
-    throw new AppError(status.FORBIDDEN, "This user is blocked");
-  }
+    if (user.isDeleted || user.status === USER_STATUS.DELETED) {
+        throw new AppError(status.FORBIDDEN, "This user has been deleted");
+    }
 
-  // Update password
-  user.password = newPassword;
-  user.passwordChangedAt = new Date();
-  await user.save();
+    if (user.status === USER_STATUS.BLOCKED) {
+        throw new AppError(status.FORBIDDEN, "This user is blocked");
+    }
 
-  return { message: "Password reset successfully" };
+    const { resetToken } = await createPasswordResetSession(String(user._id));
+
+    return {
+        message: "OTP verified. Use resetToken to set a new password.",
+        resetToken,
+    };
+};
+
+const resetPasswordService = async (resetToken: string, newPassword: string) => {
+    const { user } = await consumePasswordResetSession(resetToken);
+
+    if (user.isDeleted || user.status === USER_STATUS.DELETED) {
+        throw new AppError(status.FORBIDDEN, "This user has been deleted");
+    }
+
+    if (user.status === USER_STATUS.BLOCKED) {
+        throw new AppError(status.FORBIDDEN, "This user is blocked");
+    }
+
+    user.password = newPassword;
+    user.passwordChangedAt = new Date();
+    user.accessToken = undefined;
+    user.refreshToken = undefined;
+    await user.save();
+
+    return { message: "Password reset successful" };
 };
 
 export const authServices = {
-  signUpService,
-  loginService,
-  // COMMENTED OUT: Email verification services no longer used
-  // verifyEmailService,
-  // resendOtpService,
-  verifyAccessTokenService,
-  changePasswordService,
-  forgotPasswordService,
-  resetPasswordService,
+    signUpService,
+    verifySignupOtpService,
+    resendOtpService,
+    loginService,
+    verifyAccessTokenService,
+    changePasswordService,
+    forgotPasswordService,
+    verifyForgotPasswordOtpService,
+    resetPasswordService,
 };

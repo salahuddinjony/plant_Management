@@ -7,11 +7,13 @@ import { CartModel } from "../cart/cart.model";
 import { CouponModel } from "../coupon/coupon.model";
 import { OrderSettingsModel } from "../order-settings/order-settings.model";
 import { calculateOrderCharges } from "../order-settings/order-settings.utils";
+import { assertProductPurchasable } from "../products/product-availability.util";
 import {
     applyOrderInventory,
     assertSufficientStock,
     revertOrderInventory,
 } from "../products/product-inventory.util";
+import { ProductModel } from "../products/products.model";
 import {
     getDiscountedUnitPrice,
     getLineTotal,
@@ -19,8 +21,200 @@ import {
     roundMoney,
 } from "../products/product-price.util";
 import { TransactionModel } from "../transaction/transaction.model";
-import { TOrderPaymentStatus } from "./order.constants";
+import { ORDER_INITIAL_PAYMENT_STATUS, TOrderPaymentStatus } from "./order.constants";
+import { resolveOrderPayment } from "./order-payment.util";
+import { ClientSession } from "mongoose";
 import { OrderModel } from "./order.model";
+
+type TProductForOrderLine = {
+    _id: { toString(): string };
+    name: string;
+    price: number;
+    discount?: number;
+    isAvailable?: boolean;
+};
+
+type TPricedOrderLine = {
+    product: TProductForOrderLine;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+};
+
+const buildPricedLines = (
+    lines: { product: TProductForOrderLine; quantity: number }[]
+): TPricedOrderLine[] =>
+    lines.map(({ product, quantity }) => {
+        const unitPrice = getDiscountedUnitPrice(product.price, product.discount ?? 0);
+        const lineTotal = getLineTotal(unitPrice, quantity);
+        return { product, quantity, unitPrice, lineTotal };
+    });
+
+const getAddressSnapshotForOrder = async (
+    userId: string,
+    shippingAddressId: string,
+    session: ClientSession
+) => {
+    const shippingAddress = await AddressModel.findById(shippingAddressId).session(session);
+    if (!shippingAddress || shippingAddress.userId.toString() !== userId) {
+        throw new AppError(400, "Invalid shipping address");
+    }
+
+    const phoneNumber = shippingAddress.phoneNumber?.trim();
+    if (!phoneNumber) {
+        throw new AppError(400, "Shipping address must include a phone number");
+    }
+
+    return {
+        street: shippingAddress.street,
+        city: shippingAddress.city,
+        postalCode: shippingAddress.postalCode,
+        country: shippingAddress.country,
+        phoneNumber,
+        label: shippingAddress.label ?? DEFAULT_ADDRESS_LABEL,
+    };
+};
+
+const commitOrderFromPricedLines = async (
+    userId: string,
+    shippingAddressId: string,
+    pricedLines: TPricedOrderLine[],
+    options: {
+        discountCode?: string;
+        paymentMethod?: string;
+        transactionId?: string;
+        notes?: string;
+        clearCart?: boolean;
+    }
+) => {
+    if (!options.paymentMethod?.trim()) {
+        throw new AppError(400, "Payment method is required");
+    }
+
+    const resolvedPayment = await resolveOrderPayment(
+        options.paymentMethod,
+        options.transactionId
+    );
+
+    if (pricedLines.length === 0) {
+        throw new AppError(400, "No products to order");
+    }
+
+    const unavailableProduct = pricedLines.some(({ product }) => product.isAvailable === false);
+    if (unavailableProduct) {
+        throw new AppError(400, "One or more products are not available");
+    }
+
+    const session = await OrderModel.startSession();
+    session.startTransaction();
+
+    try {
+        const addressSnapshot = await getAddressSnapshotForOrder(
+            userId,
+            shippingAddressId,
+            session
+        );
+
+        const subtotal = pricedLines.reduce((sum, line) => sum + line.lineTotal, 0);
+
+        const productDiscountAmount = roundMoney(
+            pricedLines.reduce(
+                (sum, { product, quantity }) =>
+                    sum +
+                    getProductLineDiscount(product.price, product.discount ?? 0, quantity),
+                0
+            )
+        );
+
+        let couponDiscountAmount = 0;
+        if (options.discountCode) {
+            const coupon = await CouponModel.findOne({
+                code: options.discountCode.toUpperCase(),
+            }).session(session);
+            if (!coupon) {
+                throw new AppError(400, "Invalid discount code");
+            }
+
+            const now = new Date();
+            if (coupon.validFrom > now || coupon.validUntil < now) {
+                throw new AppError(400, "Discount code has expired");
+            }
+
+            if (coupon.maxUses && coupon.currentUses >= coupon.maxUses) {
+                throw new AppError(400, "Discount code usage limit reached");
+            }
+
+            if (coupon.minOrderAmount && subtotal < coupon.minOrderAmount) {
+                throw new AppError(400, `Minimum order amount of ${coupon.minOrderAmount} required`);
+            }
+
+            if (coupon.discountType === "percentage") {
+                couponDiscountAmount = roundMoney((subtotal * coupon.discountValue) / 100);
+            } else {
+                couponDiscountAmount = roundMoney(coupon.discountValue);
+            }
+
+            coupon.currentUses += 1;
+            await coupon.save({ session });
+        }
+
+        const discountAmount = roundMoney(productDiscountAmount + couponDiscountAmount);
+
+        const items = pricedLines.map(({ product, quantity, unitPrice, lineTotal }) => ({
+            productId: product._id,
+            name: product.name,
+            price: unitPrice,
+            quantity,
+            total: lineTotal,
+        }));
+
+        const pricingSettings = await OrderSettingsModel.findOne({ isActive: true }).session(session);
+        if (!pricingSettings) {
+            throw new AppError(500, "No active order pricing settings configured");
+        }
+
+        const { tax, shippingCost } = calculateOrderCharges(subtotal, pricingSettings);
+        const total = Math.max(0, roundMoney(subtotal + tax + shippingCost - couponDiscountAmount));
+
+        const orderData = {
+            orderId: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`,
+            userId,
+            items,
+            shippingAddress: addressSnapshot,
+            billingAddress: addressSnapshot,
+            tax,
+            shippingCost,
+            subtotal,
+            discountCode: options.discountCode?.toUpperCase(),
+            discountAmount,
+            total,
+            paymentMethod: resolvedPayment.paymentMethod,
+            transactionId: resolvedPayment.transactionId,
+            orderStatus: "pending" as const,
+            paymentStatus: ORDER_INITIAL_PAYMENT_STATUS,
+            ...(options.notes?.trim() && { notes: options.notes.trim() }),
+        };
+
+        await assertSufficientStock(items, session);
+
+        const [order] = await OrderModel.create([orderData], { session });
+
+        await applyOrderInventory(items, session);
+
+        if (options.clearCart) {
+            await CartModel.deleteOne({ userId }, { session });
+        }
+
+        await session.commitTransaction();
+        return order;
+    } catch (error) {
+        await session.abortTransaction();
+        console.error("Order creation failed, transaction rolled back:", error);
+        throw error;
+    } finally {
+        session.endSession();
+    }
+};
 
 /** Resolve product id from a cart line (populated object, raw string, or missing). */
 const resolveCartItemProductId = (item: { productId?: unknown }): string | null => {
@@ -53,203 +247,92 @@ export const createOrderService = async (
     transactionId?: string,
     notes?: string
 ) => {
-    // Validate transaction ID requirement for non-cash payments
-    const cashOnDeliveryVariants = ["cash", "cod", "cash on delivery", "cash_on_delivery"];
-    const isCashOnDelivery = !paymentMethod || cashOnDeliveryVariants.includes(paymentMethod.toLowerCase());
+    const cart = await CartModel.findOne({ userId }).populate({
+        path: "items.productId",
+        match: { isAvailable: true },
+    });
 
-    if (!isCashOnDelivery && !transactionId) {
-        throw new AppError(400, "Transaction ID is required for non-cash on delivery payments");
+    if (!cart || cart.items.length === 0) {
+        throw new AppError(400, "Cart is empty");
     }
 
-    // Start MongoDB session for transaction
-    const session = await OrderModel.startSession();
-    session.startTransaction();
+    const validCartItems = cart.items.filter((item) => resolveCartItemProductId(item) !== null);
+    if (validCartItems.length < cart.items.length) {
+        cart.items = validCartItems as typeof cart.items;
+        cart.subtotal = cart.items.reduce((sum, item) => sum + item.total, 0);
+        cart.total = cart.subtotal;
+        await cart.save();
+    }
 
-    try {
-        const cart = await CartModel.findOne({ userId })
-            .populate({
-                path: "items.productId",
-                match: { isAvailable: true },
-            })
-            .session(session);
-        if (!cart || cart.items.length === 0) {
-            throw new AppError(400, "Cart is empty");
-        }
+    if (cart.items.length === 0) {
+        throw new AppError(400, "Cart is empty");
+    }
 
-        // Drop cart lines whose product was deleted (populate leaves productId null)
-        const validCartItems = cart.items.filter((item) => resolveCartItemProductId(item) !== null);
-        if (validCartItems.length < cart.items.length) {
-            cart.items = validCartItems as typeof cart.items;
-            cart.subtotal = cart.items.reduce((sum, item) => sum + item.total, 0);
-            cart.total = cart.subtotal;
-            await cart.save({ session });
-        }
+    const selectedItems = cart.items.filter((item) => {
+        const productId = resolveCartItemProductId(item);
+        return productId != null && selectedProductIds.includes(productId);
+    });
 
-        if (cart.items.length === 0) {
-            throw new AppError(400, "Cart is empty");
-        }
+    if (selectedItems.length === 0) {
+        throw new AppError(400, "No valid products selected for order");
+    }
 
-        const shippingAddress = await AddressModel.findById(shippingAddressId).session(session);
-        if (!shippingAddress || shippingAddress.userId.toString() !== userId) {
-            throw new AppError(400, "Invalid shipping address");
-        }
-
-        const phoneNumber = shippingAddress.phoneNumber?.trim();
-        if (!phoneNumber) {
-            throw new AppError(400, "Shipping address must include a phone number");
-        }
-
-        const addressSnapshot = {
-            street: shippingAddress.street,
-            city: shippingAddress.city,
-            postalCode: shippingAddress.postalCode,
-            country: shippingAddress.country,
-            phoneNumber,
-            label: shippingAddress.label ?? DEFAULT_ADDRESS_LABEL,
-        };
-
-        // Filter cart items to only include selected products
-        const selectedItems = cart.items.filter((item) => {
-            const productId = resolveCartItemProductId(item);
-            return productId != null && selectedProductIds.includes(productId);
-        });
-
-        if (selectedItems.length === 0) {
-            throw new AppError(400, "No valid products selected for order");
-        }
-
-        const missingProduct = selectedItems.some(
-            (item) => typeof item.productId !== "object" || item.productId == null
+    const missingProduct = selectedItems.some(
+        (item) => typeof item.productId !== "object" || item.productId == null
+    );
+    if (missingProduct) {
+        throw new AppError(
+            400,
+            "One or more products in your cart are no longer available. Please remove them and try again."
         );
-        if (missingProduct) {
-            throw new AppError(
-                400,
-                "One or more products in your cart are no longer available. Please remove them and try again."
-            );
-        }
+    }
 
-        // Line prices use product discount % at checkout time
-        const pricedLines = selectedItems.map((item: any) => {
-            const product = item.productId;
-            const unitPrice = getDiscountedUnitPrice(product.price, product.discount ?? 0);
-            const lineTotal = getLineTotal(unitPrice, item.quantity);
-            return { item, unitPrice, lineTotal, product };
-        });
-
-        const unavailableProduct = pricedLines.some(({ product }) => product.isAvailable === false);
-        if (unavailableProduct) {
-            throw new AppError(
-                400,
-                "One or more selected products are not available. Please update your cart and try again."
-            );
-        }
-
-        const subtotal = pricedLines.reduce((sum, line) => sum + line.lineTotal, 0);
-
-        const productDiscountAmount = roundMoney(
-            pricedLines.reduce(
-                (sum, { item, product }) =>
-                    sum +
-                    getProductLineDiscount(
-                        product.price,
-                        product.discount ?? 0,
-                        item.quantity
-                    ),
-                0
-            )
-        );
-
-        let couponDiscountAmount = 0;
-        if (discountCode) {
-            const coupon = await CouponModel.findOne({ code: discountCode.toUpperCase() }).session(session);
-            if (!coupon) {
-                throw new AppError(400, "Invalid discount code");
-            }
-
-            const now = new Date();
-            if (coupon.validFrom > now || coupon.validUntil < now) {
-                throw new AppError(400, "Discount code has expired");
-            }
-
-            if (coupon.maxUses && coupon.currentUses >= coupon.maxUses) {
-                throw new AppError(400, "Discount code usage limit reached");
-            }
-
-            if (coupon.minOrderAmount && subtotal < coupon.minOrderAmount) {
-                throw new AppError(400, `Minimum order amount of ${coupon.minOrderAmount} required`);
-            }
-
-            if (coupon.discountType === "percentage") {
-                couponDiscountAmount = roundMoney((subtotal * coupon.discountValue) / 100);
-            } else {
-                couponDiscountAmount = roundMoney(coupon.discountValue);
-            }
-
-            coupon.currentUses += 1;
-            await coupon.save({ session });
-        }
-
-        const discountAmount = roundMoney(productDiscountAmount + couponDiscountAmount);
-
-        const items = pricedLines.map(({ item, unitPrice, lineTotal, product }) => ({
-            productId: product._id,
-            name: product.name,
-            price: unitPrice,
+    const pricedLines = buildPricedLines(
+        selectedItems.map((item) => ({
+            product: item.productId as unknown as TProductForOrderLine,
             quantity: item.quantity,
-            total: lineTotal,
-        }));
+        }))
+    );
 
-        const pricingSettings = await OrderSettingsModel.findOne({ isActive: true }).session(session);
-        if (!pricingSettings) {
-            throw new AppError(500, "No active order pricing settings configured");
-        }
+    return commitOrderFromPricedLines(userId, shippingAddressId, pricedLines, {
+        discountCode,
+        paymentMethod,
+        transactionId,
+        notes,
+        clearCart: true,
+    });
+};
 
-        const { tax, shippingCost } = calculateOrderCharges(subtotal, pricingSettings);
-        // subtotal already uses discounted line prices; only subtract coupon from total
-        const total = Math.max(0, roundMoney(subtotal + tax + shippingCost - couponDiscountAmount));
+/**
+ * Buy now — place order for a single product without adding to cart first.
+ */
+export const buyNowOrderService = async (
+    userId: string,
+    productId: string,
+    quantity: number,
+    shippingAddressId: string,
+    discountCode?: string,
+    paymentMethod?: string,
+    transactionId?: string,
+    notes?: string
+) => {
+    const product = await ProductModel.findById(productId);
+    assertProductPurchasable(product);
 
-        // Create order with transaction session
-        const orderData = {
-            orderId: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`,
-            userId,
-            items,
-            shippingAddress: addressSnapshot,
-            billingAddress: addressSnapshot,
-            tax,
-            shippingCost,
-            subtotal,
-            discountCode: discountCode?.toUpperCase(),
-            discountAmount,
-            total,
-            paymentMethod: paymentMethod || "cash",
-            transactionId: transactionId || undefined,
-            orderStatus: "pending",
-            paymentStatus: isCashOnDelivery ? "pending" : "completed",
-            ...(notes?.trim() && { notes: notes.trim() }),
-        };
-
-        await assertSufficientStock(items, session);
-
-        const [order] = await OrderModel.create([orderData], { session });
-
-        await applyOrderInventory(items, session);
-
-        // Clear cart after successful order creation
-        await CartModel.deleteOne({ userId }, { session });
-
-        // Commit the transaction
-        await session.commitTransaction();
-
-        return order;
-    } catch (error) {
-        // Rollback transaction on any error
-        await session.abortTransaction();
-        console.error("Order creation failed, transaction rolled back:", error);
-        throw error;
-    } finally {
-        // End session
-        session.endSession();
+    const stock = product.available ?? 0;
+    if (stock < quantity) {
+        throw new AppError(400, "Insufficient stock available");
     }
+
+    const pricedLines = buildPricedLines([{ product, quantity }]);
+
+    return commitOrderFromPricedLines(userId, shippingAddressId, pricedLines, {
+        discountCode,
+        paymentMethod,
+        transactionId,
+        notes,
+        clearCart: false,
+    });
 };
 
 /**
@@ -426,6 +509,7 @@ export const cancelOrderService = async (orderId: string, userId: string) => {
 
 export const orderService = {
     createOrderService,
+    buyNowOrderService,
     getOrderByIdService,
     getOrdersByUserService,
     getAllOrdersService,

@@ -65,6 +65,10 @@ export default {
   cloudinary_api_secret: process.env.CLOUDINARY_API_SECRET,
   super_admin_password: process.env.SUPER_ADMIN_PASSWORD,
   smtpUserName,
-  smtpPassword: process.env.SMTP_PASSWORD,
+  smtpPassword: process.env.SMTP_PASSWORD?.replace(/\s+/g, "").trim(),
   clientUrl: process.env.CLIENT_URL,
+  smsApiKey: process.env.SMS_API_KEY,
+  smsSenderName: process.env.SMS_SENDER_NAME,
+  smsUserName: process.env.SMS_USER_NAME,
+  mimSmsUrl: process.env.MIM_SMS_URL,
 };

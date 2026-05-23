@@ -8,7 +8,17 @@ import { orderValidation } from "./order.validation";
 const orderRouter = Router();
 
 /**
- * Create order (By User)
+ * Buy now — single product, no cart required
+ */
+orderRouter.post(
+    "/buy-now",
+    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    validateRequest(orderValidation.buyNowOrderZodSchema),
+    orderController.buyNowOrder
+);
+
+/**
+ * Create order from cart (By User)
  */
 orderRouter.post(
     "/",

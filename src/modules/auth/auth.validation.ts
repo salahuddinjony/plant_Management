@@ -6,6 +6,17 @@ export type TLogin = {
   password: string;
 };
 
+const emailOrPhoneSchema = z
+  .string({
+    required_error: "Email or phone is required",
+    invalid_type_error: "Email or phone must be a string",
+  })
+  .trim()
+  .refine(
+    (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val) || /^\d{11}$/.test(val),
+    { message: "Must be a valid email or 11-digit phone number" }
+  );
+
 const signUpZodSchema = z.object({
   body: z.object({
     name: z
@@ -15,15 +26,7 @@ const signUpZodSchema = z.object({
       })
       .min(3, "Name must be at least 3 characters")
       .max(255),
-    emailOrPhone: z
-      .string({
-        required_error: "Email or phone is required",
-        invalid_type_error: "Email or phone must be a string",
-      })
-      .refine(
-        (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val) || /^\d{11}$/.test(val),
-        { message: "Must be a valid email or 11-digit phone number" }
-      ),
+    emailOrPhone: emailOrPhoneSchema,
     password: z
       .string({
         required_error: "Password is required",
@@ -32,9 +35,7 @@ const signUpZodSchema = z.object({
       .min(6, "Password must be at least 6 characters")
       .max(255)
       .trim(),
-    profilePicture: z
-      .string()
-      .optional(),
+    profilePicture: z.string().optional(),
     role: z
       .enum(Object.values(USER_ROLE) as [string, ...string[]], {
         invalid_type_error: "Role must be a valid role",
@@ -45,91 +46,120 @@ const signUpZodSchema = z.object({
 
 const loginZodSchema = z.object({
   body: z.object({
-    emailOrPhone: z
-      .string({
-        required_error: "Email or phone is required",
-        invalid_type_error: "Email or phone must be a string",
-      })
-      .refine(
-        (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val) || /^\d{11}$/.test(val),
-        { message: "Must be a valid email or 11-digit phone number" }
-      ),
+    emailOrPhone: emailOrPhoneSchema,
     password: z.string().min(6, "Password must be at least 6 characters").trim(),
   }),
 });
 
-// COMMENTED OUT: Email OTP verification is no longer required for signup
-// export const emailVerificationValidationSchema = z.object({
-//   body: z.object({
-//     email: z
-//       .string({
-//         required_error: "Email is required",
-//         invalid_type_error: "Email must be valid email address",
-//       })
-//       .email("Invalid email address"),
-//     otp: z.string(
-//       {
-//         required_error: "OTP is required",
-//         invalid_type_error: "OTP must be valid OTP",
-//       }
-//     ).min(6, "OTP must be 6 digits").max(6),
-//   }),
-// });
+const otpCodeSchema = z
+  .string({ required_error: "OTP is required" })
+  .trim()
+  .regex(/^\d{6}$/, "OTP must be 6 digits");
 
-// COMMENTED OUT: Email link verification is no longer required
-// export const emailLinkVerificationValidationSchema = z.object({
-//   query: z.object({
-//     email: z.string().email("Invalid email address"),
-//     token: z.string().min(6, "Verification code must be 6 digits").max(6),
-//   }),
-// });
+/** Standard + Flutter legacy (`email` instead of `emailOrPhone`) */
+const verifySignupOtpZodSchema = z.object({
+  body: z
+    .object({
+      emailOrPhone: emailOrPhoneSchema.optional(),
+      email: z.string().trim().email("Invalid email").optional(),
+      otp: otpCodeSchema,
+    })
+    .refine((data) => Boolean(data.emailOrPhone || data.email), {
+      message: "emailOrPhone or email is required",
+      path: ["emailOrPhone"],
+    }),
+});
 
-// COMMENTED OUT: Resend verification is no longer required
-// export const resendVerificationValidationSchema = z.object({
-//   body: z.object({
-//     email: z.string().email("Invalid email address"),
-//   }),
-// });
+const verifyEmailLegacyZodSchema = verifySignupOtpZodSchema;
+
+const requestPasswordResetZodSchema = z.object({
+  body: z
+    .object({
+      emailOrPhone: emailOrPhoneSchema.optional(),
+      email: z.string().trim().email("Invalid email").optional(),
+    })
+    .refine((data) => Boolean(data.emailOrPhone || data.email), {
+      message: "emailOrPhone or email is required",
+      path: ["emailOrPhone"],
+    }),
+});
+
+const resendOtpZodSchema = z.object({
+  body: z
+    .object({
+      emailOrPhone: emailOrPhoneSchema.optional(),
+      email: z.string().trim().email("Invalid email").optional(),
+      purpose: z.enum(["signup", "forgot_password"], {
+        errorMap: () => ({ message: "purpose must be signup or forgot_password" }),
+      }),
+    })
+    .refine((data) => Boolean(data.emailOrPhone || data.email), {
+      message: "emailOrPhone or email is required",
+      path: ["emailOrPhone"],
+    }),
+});
 
 const changePasswordZodSchema = z.object({
   body: z.object({
-    oldPassword: z.string(),
+    oldPassword: z.string().min(1, "Old password is required"),
     newPassword: z.string().min(6, "Password must be at least 6 characters"),
   }),
 });
 
+const forgotPasswordBodySchema = z
+  .object({
+    emailOrPhone: emailOrPhoneSchema.optional(),
+    email: z.string().trim().email("Invalid email").optional(),
+  })
+  .refine((data) => Boolean(data.emailOrPhone || data.email), {
+    message: "emailOrPhone or email is required",
+    path: ["emailOrPhone"],
+  });
+
 const forgotPasswordValidationSchema = z.object({
-  body: z.object({
-    emailOrPhone: z
-      .string({
-        required_error: "Email or phone is required",
-        invalid_type_error: "Email or phone must be a string",
-      })
-      .refine(
-        (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val) || /^\d{11}$/.test(val),
-        { message: "Must be a valid email or 11-digit phone number" }
-      ),
-  }),
+  body: forgotPasswordBodySchema,
+});
+
+const verifyResetOtpZodSchema = z.object({
+  body: z
+    .object({
+      emailOrPhone: emailOrPhoneSchema.optional(),
+      email: z.string().trim().email("Invalid email").optional(),
+      otp: otpCodeSchema,
+    })
+    .refine((data) => Boolean(data.emailOrPhone || data.email), {
+      message: "emailOrPhone or email is required",
+      path: ["emailOrPhone"],
+    }),
 });
 
 const resetPasswordValidationSchema = z.object({
-  body: z.object({
-    userId: z.string({
-      required_error: "User ID is required",
-      invalid_type_error: "User ID must be a string",
+  body: z
+    .object({
+      resetToken: z.string().min(1, "Reset token is required").optional(),
+      reset_token: z.string().min(1, "Reset token is required").optional(),
+      newPassword: z.string().min(6, "Password must be at least 6 characters").optional(),
+      new_password: z.string().min(6, "Password must be at least 6 characters").optional(),
+    })
+    .refine((data) => Boolean(data.resetToken || data.reset_token), {
+      message: "resetToken is required",
+      path: ["resetToken"],
+    })
+    .refine((data) => Boolean(data.newPassword || data.new_password), {
+      message: "newPassword is required",
+      path: ["newPassword"],
     }),
-    newPassword: z.string().min(6, "Password must be at least 6 characters"),
-  }),
 });
 
 export const AuthValidations = {
   signUpZodSchema,
   loginZodSchema,
-  // COMMENTED OUT: Email verification validation schemas no longer used
-  // emailVerificationValidationSchema,
-  // emailLinkVerificationValidationSchema,
-  // resendVerificationValidationSchema,
+  verifySignupOtpZodSchema,
+  verifyEmailLegacyZodSchema,
+  requestPasswordResetZodSchema,
+  resendOtpZodSchema,
   changePasswordZodSchema,
   forgotPasswordValidationSchema,
+  verifyResetOtpZodSchema,
   resetPasswordValidationSchema,
 };
