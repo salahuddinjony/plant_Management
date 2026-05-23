@@ -26,7 +26,7 @@ const auth = (...requiredRoles: TUserRole[]) => {
     const { id, role: tokenRole } = decoded;
 
     const user = await UserModel.findById(id).select(
-      "+password name emailOrPhone role staffRole permissions status isDeleted"
+      "+password name emailOrPhone role staffRole permissions status isDeleted",
     );
 
     if (!user) {
@@ -42,7 +42,10 @@ const auth = (...requiredRoles: TUserRole[]) => {
     }
 
     const effectiveRole = user.role ?? tokenRole;
-    if (requiredRoles.length && !requiredRoles.includes(effectiveRole as TUserRole)) {
+    if (
+      requiredRoles.length &&
+      !requiredRoles.includes(effectiveRole as TUserRole)
+    ) {
       throw new AppError(status.FORBIDDEN, "You are not authorized!");
     }
 
