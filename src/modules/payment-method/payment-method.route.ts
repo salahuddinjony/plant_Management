@@ -1,5 +1,7 @@
 import { Router } from "express";
-import { panelRead, panelWrite } from "../../middlewares/panelAccess";
+import { USER_ROLE } from "../../constants/status.constants";
+import auth from "../../middlewares/auth";
+import { APP_ROLES, panelRead, panelWrite } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { PERMISSIONS } from "../rbac/permissions.constants";
 import { paymentMethodController } from "./payment-method.controller";
@@ -14,20 +16,25 @@ paymentMethodRouter.post(
     paymentMethodController.createPaymentMethodController
 );
 
+/** Admin panel — all methods (active + inactive). */
 paymentMethodRouter.get(
     "/admin/all",
     ...panelRead,
     paymentMethodController.getAllPaymentMethodsController
 );
 
+/** Customer — active methods only. */
 paymentMethodRouter.get(
     "/",
+    auth(USER_ROLE.USER),
     paymentMethodController.getActivePaymentMethodsController
 );
 
+/** By id: customer → active only; admin / super-admin / staff → any. */
 paymentMethodRouter.get(
     "/:id",
-    ...panelRead,
+    auth(...APP_ROLES),
+    validateRequest(paymentMethodValidation.paymentMethodIdParamsSchema),
     paymentMethodController.getPaymentMethodByIdController
 );
 
@@ -41,6 +48,7 @@ paymentMethodRouter.patch(
 paymentMethodRouter.delete(
     "/:id",
     ...panelWrite(PERMISSIONS.PAYMENT_METHODS_WRITE),
+    validateRequest(paymentMethodValidation.paymentMethodIdParamsSchema),
     paymentMethodController.deletePaymentMethodController
 );
 

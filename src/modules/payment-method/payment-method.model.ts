@@ -1,4 +1,5 @@
 import { model, Schema } from "mongoose";
+import { PAYMENT_ACCOUNT_TYPES } from "./payment-method.constants";
 import { TPaymentMethod } from "./payment-method.interface";
 
 const PaymentMethodSchema = new Schema<TPaymentMethod>(
@@ -15,16 +16,22 @@ const PaymentMethodSchema = new Schema<TPaymentMethod>(
         },
         accountNumber: {
             type: String,
+            required: true,
             trim: true,
         },
         accountName: {
             type: String,
+            required: true,
             trim: true,
         },
         accountType: {
             type: String,
-            enum: ["Personal", "Agent"],
-            default: "Personal",
+            enum: PAYMENT_ACCOUNT_TYPES,
+            required: true,
+        },
+        branchName: {
+            type: String,
+            trim: true,
         },
         instructions: {
             type: String,

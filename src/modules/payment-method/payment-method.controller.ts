@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import httpStatus from "http-status";
+import { USER_ROLE } from "../../constants/status.constants";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
 import { TPaymentMethod } from "./payment-method.interface";
@@ -19,7 +20,12 @@ const createPaymentMethodController = catchAsync(async (req: Request, res: Respo
 
 const getPaymentMethodByIdController = catchAsync(async (req: Request, res: Response) => {
     const { id } = req.params as { id: string };
-    const result = await paymentMethodService.getPaymentMethodByIdService(id as string);
+    const role = req.user?.role as string | undefined;
+
+    const result =
+        role === USER_ROLE.USER
+            ? await paymentMethodService.getPaymentMethodByIdActiveService(id)
+            : await paymentMethodService.getPaymentMethodByIdService(id);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
