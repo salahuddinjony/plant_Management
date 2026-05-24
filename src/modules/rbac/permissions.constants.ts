@@ -13,6 +13,7 @@ export const PERMISSIONS = {
     FLASH_SALES_WRITE: "flash_sales:write",
     CAROUSELS_WRITE: "carousels:write",
     CONTACTS_WRITE: "contacts:write",
+    POLICIES_WRITE: "policies:write",
     AVATARS_WRITE: "avatars:write",
 
     ORDER_SETTINGS_WRITE: "order_settings:write",

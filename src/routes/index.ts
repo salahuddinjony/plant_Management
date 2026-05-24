@@ -11,6 +11,7 @@ import { flashSaleRoutes } from "../modules/flash-sale/flash-sale.route";
 import orderRouter from "../modules/order/order.route";
 import orderSettingsRouter from "../modules/order-settings/order-settings.route";
 import paymentMethodRouter from "../modules/payment-method/payment-method.route";
+import purchaseDisclaimerRouter from "../modules/purchase-disclaimer/purchase-disclaimer.route";
 import rbacRouter from "../modules/rbac/rbac.route";
 import staffRouter from "../modules/staff/staff.route";
 import { productRoutes } from "../modules/products/products.route";
@@ -87,6 +88,10 @@ const moduleRoutes: IModuleRoutes[] = [
   {
     path: "/contacts",
     route: contactRouter,
+  },
+  {
+    path: "/purchase-disclaimers",
+    route: purchaseDisclaimerRouter,
   },
   {
     path: "/payment-methods",

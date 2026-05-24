@@ -1,89 +1,54 @@
 import express from "express";
-import { USER_ROLE } from "../../constants/status.constants";
+import { APP_ROLES, panelWrite } from "../../middlewares/panelAccess";
 import auth from "../../middlewares/auth";
-import { APP_ROLES } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
+import { PERMISSIONS } from "../rbac/permissions.constants";
 import { upload } from "../../utils/multer";
 import { productController } from "./products.controller";
 import { productValidation } from "./products.validation";
 
 const router = express.Router();
 
-/**
- * Create a new product
- * @param req - The request object
- * @param res - The response object
- */
 router.post(
     "/",
     upload.fields([{ name: "images", maxCount: 10 }]),
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.PRODUCTS_WRITE),
     validateRequest(productValidation.createProductZodSchema),
     productController.createProductController
 );
 
-/**
- * Update a product by ID
- * @param req - The request object
- * @param res - The response object
- */
 router.patch(
     "/:id",
     upload.fields([{ name: "images", maxCount: 10 }]),
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.PRODUCTS_WRITE),
     validateRequest(productValidation.updateProductZodSchema),
     productController.updateProductController
 );
 
-/**
- * Delete a product by ID
- * @param req - The request object
- * @param res - The response object
- */
 router.delete(
     "/:id",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.PRODUCTS_WRITE),
     productController.deleteProductController
 );
 
-/**
- * Get products by tag name
- * @param req - The request object
- * @param res - The response object
- */
 router.get(
     "/tags/:tags",
     auth(...APP_ROLES),
     productController.getProductsByTagController
 );
 
-/**
- * Get a product by ID
- * @param req - The request object
- * @param res - The response object
- */
 router.get(
     "/:id",
     auth(...APP_ROLES),
     productController.getProductByIdController
 );
 
-/**
- * Get all products
- * @param req - The request object
- * @param res - The response object
- */
 router.get(
     "/",
     auth(...APP_ROLES),
     productController.getAllProductsController
 );
 
-/**
- * Get all products by category id
- * @param req - The request object
- * @param res - The response object
- */
 router.get(
     "/category/:categoryId",
     auth(...APP_ROLES),

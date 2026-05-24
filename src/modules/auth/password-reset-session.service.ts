@@ -9,10 +9,7 @@ import {
 } from "./password-reset-session.util";
 
 const invalidateActiveSessions = async (userId: string) => {
-    await PasswordResetSessionModel.updateMany(
-        { userId, isUsed: false },
-        { $set: { isUsed: true } }
-    );
+    await PasswordResetSessionModel.deleteMany({ userId, isUsed: false });
 };
 
 export const createPasswordResetSession = async (userId: string) => {
@@ -49,13 +46,11 @@ export const consumePasswordResetSession = async (resetToken: string) => {
 
     const user = await UserModel.findById(session.userId);
     if (!user) {
-        session.isUsed = true;
-        await session.save();
+        await session.deleteOne();
         throw new AppError(status.NOT_FOUND, "User not found");
     }
 
-    session.isUsed = true;
-    await session.save();
+    await session.deleteOne();
 
-    return { user, session };
+    return { user };
 };

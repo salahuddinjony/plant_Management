@@ -23,6 +23,12 @@ import {
     generateInviteToken,
     hashInviteSecret,
 } from "./staff-invite.util";
+import {
+    markUnusedInvitesConsumed,
+    STAFF_INVITE_ACCEPTED_VIA,
+    syncStaffInviteRoleAndPermissions,
+} from "./staff-credentials.util";
+import { setUserStatus } from "../users/user-status.service";
 
 const assertInviterCanInvite = (inviter: {
     role?: string;
@@ -325,11 +331,14 @@ export const acceptStaffInviteService = async (token: string, password: string) 
     user.role = USER_ROLE.STAFF;
     user.staffRole = invite.staffRole;
     user.permissions = invite.permissions;
+    user.staffCredentialsEstablishedAt = new Date();
     await user.save();
 
     invite.isUsed = true;
     invite.acceptedAt = new Date();
+    invite.acceptedVia = STAFF_INVITE_ACCEPTED_VIA.INVITE;
     await invite.save();
+    await markUnusedInvitesConsumed(user._id, STAFF_INVITE_ACCEPTED_VIA.INVITE);
 
     return {
         message: "Account activated. Please log in.",
@@ -376,21 +385,38 @@ export const updateStaffPermissionsService = async (
         staffUser.staffRole = updates.staffRole;
     }
 
-    const staffRole = (staffUser.staffRole ?? updates.staffRole) as TStaffRoleSlug;
+    const staffRole = staffUser.staffRole as TStaffRoleSlug | undefined;
     if (!staffRole || !isStaffRoleSlug(staffRole)) {
-        throw new AppError(status.BAD_REQUEST, "Staff role is required");
+        throw new AppError(status.BAD_REQUEST, "Staff role is required on this account");
     }
 
-    const permissions = resolveStaffPermissions(
-        staffRole,
-        updates.permissions ?? staffUser.permissions
-    );
+    let permissions: string[];
+    if (updates.permissions !== undefined) {
+        permissions = resolveStaffPermissions(staffRole, updates.permissions);
+    } else if (updates.staffRole) {
+        permissions = resolveStaffPermissions(staffRole, null);
+    } else {
+        permissions = resolveStaffPermissions(staffRole, staffUser.permissions);
+    }
+
     assertInviterCanGrant(inviter, permissions);
 
     staffUser.permissions = permissions;
+    staffUser.accessToken = undefined;
+    staffUser.refreshToken = undefined;
     await staffUser.save();
 
-    return staffUser;
+    await syncStaffInviteRoleAndPermissions(staffUser._id, staffRole, permissions);
+
+    return {
+        _id: staffUser._id,
+        name: staffUser.name,
+        emailOrPhone: staffUser.emailOrPhone,
+        staffRole: staffUser.staffRole,
+        permissions: staffUser.permissions,
+        effectivePermissions: getEffectivePermissions(staffUser),
+        status: staffUser.status,
+    };
 };
 
 const assertInviterCanManageStaff = async (inviterId: string) => {
@@ -420,6 +446,14 @@ const deleteAllInvitesForStaff = async (staffUser: {
 };
 
 export const blockStaffService = async (inviterId: string, staffUserId: string) => {
+    return updateStaffStatusService(inviterId, staffUserId, USER_STATUS.BLOCKED);
+};
+
+export const updateStaffStatusService = async (
+    inviterId: string,
+    staffUserId: string,
+    nextStatus: string
+) => {
     await assertInviterCanManageStaff(inviterId);
 
     const staffUser = await UserModel.findById(staffUserId);
@@ -432,12 +466,24 @@ export const blockStaffService = async (inviterId: string, staffUserId: string) 
         throw new AppError(status.NOT_FOUND, "Staff member not found");
     }
 
-    staffUser.status = USER_STATUS.BLOCKED;
-    staffUser.accessToken = undefined;
-    staffUser.refreshToken = undefined;
-    await staffUser.save();
+    if (String(inviterId) === String(staffUserId) && nextStatus !== USER_STATUS.ACTIVE) {
+        throw new AppError(status.BAD_REQUEST, "You cannot change your own status");
+    }
 
-    return { message: "Staff member blocked", userId: staffUserId };
+    const updated = await setUserStatus(staffUserId, nextStatus);
+
+    const message =
+        nextStatus === USER_STATUS.BLOCKED
+            ? "Staff member blocked"
+            : nextStatus === USER_STATUS.ACTIVE
+              ? "Staff member is now active"
+              : "Staff member is now inactive";
+
+    return {
+        message,
+        userId: staffUserId,
+        status: updated.status,
+    };
 };
 
 export const deleteStaffService = async (inviterId: string, staffUserId: string) => {

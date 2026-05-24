@@ -17,6 +17,8 @@ export type TUser = {
   status?: TUserStatus;
   isDeleted?: boolean;
   passwordChangedAt?: Date;
+  /** Set when staff chooses password (invite, change-password, or reset-password). */
+  staffCredentialsEstablishedAt?: Date;
   accessToken?: string;
   refreshToken?: string;
 };

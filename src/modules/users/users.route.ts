@@ -6,7 +6,7 @@
 import { Router } from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
-import { APP_ROLES, PANEL_ROLES, panelRead } from "../../middlewares/panelAccess";
+import { APP_ROLES, panelUsersRead } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
 import { upload } from "../../utils/multer";
 import { userController } from "./users.controller";
@@ -46,7 +46,7 @@ router.patch(
  * @route GET /all-users
  * @group User - Admin can see all registered users list
  */
-router.get("/all-users", ...panelRead, userController.getAllUsers);
+router.get("/all-users", ...panelUsersRead, userController.getAllUsers);
 
 /**
  * @route PATCH /user/update-status

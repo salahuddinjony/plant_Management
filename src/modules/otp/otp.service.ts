@@ -35,15 +35,12 @@ const assertSendRateLimit = async (identifier: string, purpose: TOtpPurpose) => 
 };
 
 const invalidateActiveOtps = async (identifier: string, purpose: TOtpPurpose) => {
-    await OtpModel.updateMany(
-        {
-            identifier,
-            purpose,
-            consumedAt: null,
-            expiresAt: { $gt: new Date() },
-        },
-        { $set: { consumedAt: new Date() } }
-    );
+    await OtpModel.deleteMany({
+        identifier,
+        purpose,
+        consumedAt: null,
+        expiresAt: { $gt: new Date() },
+    });
 };
 
 const findActiveOtp = async (identifier: string, purpose: TOtpPurpose) => {
@@ -155,8 +152,7 @@ export const verifyOtp = async ({
         throw new AppError(status.BAD_REQUEST, "Invalid OTP");
     }
 
-    otpDoc.consumedAt = new Date();
-    await otpDoc.save();
+    await otpDoc.deleteOne();
 
     return { verified: true, identifier: normalized, purpose };
 };

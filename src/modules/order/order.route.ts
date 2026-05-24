@@ -1,9 +1,8 @@
 import { Router } from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
-import { APP_ROLES, panelRead } from "../../middlewares/panelAccess";
+import { APP_ROLES, panelGuard, panelRead, panelWrite } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
-import { authorize } from "../../middlewares/authorize";
 import { PERMISSIONS } from "../rbac/permissions.constants";
 import { orderController } from "./order.controller";
 import { orderValidation } from "./order.validation";
@@ -38,7 +37,11 @@ orderRouter.get("/my", auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADM
 /**
  * Get all orders (By Admin)
  */
-orderRouter.get("/all", ...panelRead, orderController.getAllOrders);
+orderRouter.get(
+    "/all",
+    ...panelGuard(PERMISSIONS.READ_ALL, PERMISSIONS.ORDERS_READ),
+    orderController.getAllOrders
+);
 
 /**
  * Get specific order (By User and Admin)
@@ -50,8 +53,7 @@ orderRouter.get("/:orderId", auth(...APP_ROLES), orderController.getOrder);
  */
 orderRouter.patch(
     "/:orderId/status",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN, USER_ROLE.STAFF),
-    authorize(PERMISSIONS.ORDERS_UPDATE_STATUS),
+    ...panelWrite(PERMISSIONS.ORDERS_UPDATE_STATUS),
     validateRequest(orderValidation.updateOrderStatusValidationSchema),
     orderController.updateOrderStatus
 );
@@ -61,8 +63,7 @@ orderRouter.patch(
  */
 orderRouter.patch(
     "/:orderId/payment-status",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN, USER_ROLE.STAFF),
-    authorize(PERMISSIONS.ORDERS_UPDATE_PAYMENT),
+    ...panelWrite(PERMISSIONS.ORDERS_UPDATE_PAYMENT),
     validateRequest(orderValidation.updateOrderPaymentStatusValidationSchema),
     orderController.updateOrderPaymentStatus
 );

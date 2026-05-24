@@ -29,7 +29,6 @@ const OtpSchema = new Schema<TOtp>(
         expiresAt: {
             type: Date,
             required: true,
-            index: true,
         },
         attempts: {
             type: Number,

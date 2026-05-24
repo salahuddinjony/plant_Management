@@ -1,8 +1,8 @@
 import express, { NextFunction, Request, Response } from 'express';
-import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
-import { APP_ROLES, panelRead } from "../../middlewares/panelAccess";
+import { APP_ROLES, panelRead, panelWrite } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
+import { PERMISSIONS } from "../rbac/permissions.constants";
 import { upload } from "../../utils/multer";
 import { flashSaleController } from "./flash-sale.controller";
 import { flashSaleValidation } from "./flash-sale.validation";
@@ -17,7 +17,7 @@ const router = express.Router();
  */
 router.post(
     "/",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.FLASH_SALES_WRITE),
     upload.single("image"),
     // parse form data into json middleware
     (req: Request, res: Response, next: NextFunction) => {
@@ -36,7 +36,7 @@ router.post(
  */
 router.patch(
     "/:id",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.FLASH_SALES_WRITE),
     upload.single("image"),
     // parse form data into json middleware
     (req: Request, res: Response, next: NextFunction) => {
@@ -55,7 +55,7 @@ router.patch(
  */
 router.delete(
     "/:id",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.FLASH_SALES_WRITE),
     flashSaleController.deleteFlashSaleController
 );
 

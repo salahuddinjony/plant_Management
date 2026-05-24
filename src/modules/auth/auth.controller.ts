@@ -19,11 +19,18 @@ const signUpController = catchAsync(async (req, res) => {
 
   const result = await authServices.signUpService(body);
 
+  const requiresOtp =
+    result && typeof result === "object" && "requiresOtp" in result
+      ? (result as { requiresOtp?: boolean }).requiresOtp !== false
+      : true;
+
   sendResponse(res, {
     statusCode: status.CREATED,
     success: true,
-    message:
-      "OTP sent to your email or phone. Verify OTP to create your account.",
+    message: requiresOtp
+      ? "OTP sent to your email or phone. Verify OTP to create your account."
+      : (result as { message?: string }).message ??
+        "Account created successfully.",
     data: result,
   });
 });

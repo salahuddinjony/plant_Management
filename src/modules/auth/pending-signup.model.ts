@@ -34,7 +34,6 @@ const PendingSignupSchema = new Schema<TPendingSignup>(
         expiresAt: {
             type: Date,
             required: true,
-            index: true,
         },
     },
     { timestamps: true }

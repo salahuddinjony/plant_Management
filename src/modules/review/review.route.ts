@@ -1,6 +1,8 @@
 import { Router } from "express";
 import auth from "../../middlewares/auth";
+import { panelWrite } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
+import { PERMISSIONS } from "../rbac/permissions.constants";
 import { upload } from "../../utils/multer";
 import { reviewController } from "./review.controller";
 import { reviewValidation } from "./review.validation";
@@ -40,9 +42,17 @@ reviewRouter.get("/product/:productId", reviewController.getReviewsByProductCont
  */
 reviewRouter.get("/my", auth(), reviewController.getReviewsByUserController);
 
-/** Legacy: publish / unpublish / helpful (production compatibility) */
-reviewRouter.patch("/:reviewId/publish", auth(), reviewController.publishReviewController);
-reviewRouter.patch("/:reviewId/unpublish", auth(), reviewController.unpublishReviewController);
+/** Admin/staff moderation */
+reviewRouter.patch(
+    "/:reviewId/publish",
+    ...panelWrite(PERMISSIONS.REVIEWS_WRITE),
+    reviewController.publishReviewController
+);
+reviewRouter.patch(
+    "/:reviewId/unpublish",
+    ...panelWrite(PERMISSIONS.REVIEWS_WRITE),
+    reviewController.unpublishReviewController
+);
 reviewRouter.patch("/:reviewId/helpful", reviewController.addHelpfulReviewController);
 
 /**

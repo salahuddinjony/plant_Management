@@ -1,6 +1,13 @@
 import mongoose, { ClientSession } from "mongoose";
 import AppError from "../../errors/AppError";
+import { USER_ROLE } from "../../constants/status.constants";
 import { FOLDER_NAMES } from "../../constants/folder.constants";
+import { PERMISSIONS } from "../rbac/permissions.constants";
+import {
+    getEffectivePermissions,
+    hasPermission,
+    isFullAccessRole,
+} from "../rbac/rbac.utils";
 import { deleteImage, uploadImage } from "../../utils/imageUpload";
 import { ProductModel } from "../products/products.model";
 import { ReviewModel } from "./review.model";
@@ -174,7 +181,11 @@ export const updateReviewService = async (
     }
 };
 
-export const deleteReviewService = async (reviewId: string, userId: string, role?: string) => {
+export const deleteReviewService = async (
+    reviewId: string,
+    userId: string,
+    actor?: { role?: string; permissions?: string[] }
+) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
@@ -185,8 +196,18 @@ export const deleteReviewService = async (reviewId: string, userId: string, role
         }
 
         const isOwner = review.userId.toString() === userId;
-        const isStaff = role === "admin" || role === "super-admin";
-        if (!isOwner && !isStaff) {
+        const role = actor?.role;
+        const canModerate =
+            isFullAccessRole(role) ||
+            (role === USER_ROLE.STAFF &&
+                hasPermission(
+                    getEffectivePermissions({
+                        role,
+                        permissions: actor?.permissions,
+                    }),
+                    PERMISSIONS.REVIEWS_WRITE
+                ));
+        if (!isOwner && !canModerate) {
             throw new AppError(403, "You are not authorized to delete this review");
         }
 

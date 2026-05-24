@@ -17,7 +17,6 @@ const PasswordResetSessionSchema = new Schema<TPasswordResetSession>(
         expiresAt: {
             type: Date,
             required: true,
-            index: true,
         },
         isUsed: {
             type: Boolean,

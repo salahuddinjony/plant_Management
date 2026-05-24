@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { USER_STATUS } from "../../constants/status.constants";
+import { ALL_PERMISSION_VALUES } from "../rbac/permissions.constants";
 import { STAFF_ROLE_SLUGS } from "../rbac/staff-role.constants";
 
 const emailOrPhoneSchema = z
@@ -28,11 +30,20 @@ export const acceptStaffInviteZodSchema = z.object({
     }),
 });
 
+const permissionSlugSchema = z.enum(
+    ALL_PERMISSION_VALUES as unknown as [string, ...string[]]
+);
+
 export const updateStaffZodSchema = z.object({
-    body: z.object({
-        staffRole: z.enum(STAFF_ROLE_SLUGS).optional(),
-        permissions: z.array(z.string()).optional(),
-    }),
+    body: z
+        .object({
+            staffRole: z.enum(STAFF_ROLE_SLUGS).optional(),
+            /** Full permission list, or `[]` to reset to the role template defaults. */
+            permissions: z.array(permissionSlugSchema).optional(),
+        })
+        .refine((body) => body.staffRole !== undefined || body.permissions !== undefined, {
+            message: "Provide staffRole and/or permissions to update",
+        }),
     params: z.object({
         staffUserId: z.string().regex(/^[0-9a-f]{24}$/i, "Invalid user ID"),
     }),
@@ -41,5 +52,20 @@ export const updateStaffZodSchema = z.object({
 export const staffUserIdParamsSchema = z.object({
     params: z.object({
         staffUserId: z.string().regex(/^[0-9a-f]{24}$/i, "Invalid user ID"),
+    }),
+});
+
+export const updateStaffStatusZodSchema = z.object({
+    params: z.object({
+        staffUserId: z.string().regex(/^[0-9a-f]{24}$/i, "Invalid user ID"),
+    }),
+    body: z.object({
+        status: z.enum(
+            [USER_STATUS.ACTIVE, USER_STATUS.INACTIVE, USER_STATUS.BLOCKED] as [
+                string,
+                ...string[],
+            ],
+            { invalid_type_error: "Status must be active, inactive, or blocked" }
+        ),
     }),
 });

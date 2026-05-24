@@ -10,6 +10,7 @@ import {
     listStaffService,
     resendStaffInviteService,
     updateStaffPermissionsService,
+    updateStaffStatusService,
 } from "./staff.service";
 
 export const inviteStaff = catchAsync(async (req: Request, res: Response) => {
@@ -89,6 +90,23 @@ export const blockStaff = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+export const updateStaffStatus = catchAsync(async (req: Request, res: Response) => {
+    const { staffUserId } = req.params;
+    const { status: nextStatus } = req.body;
+    const result = await updateStaffStatusService(
+        req.user.id as string,
+        staffUserId as string,
+        nextStatus
+    );
+
+    sendResponse(res, {
+        statusCode: status.OK,
+        success: true,
+        message: result.message,
+        data: result,
+    });
+});
+
 export const deleteStaff = catchAsync(async (req: Request, res: Response) => {
     const { staffUserId } = req.params;
     const result = await deleteStaffService(req.user.id as string, staffUserId as string);
@@ -108,5 +126,6 @@ export const staffController = {
     resendStaffInvite,
     updateStaff,
     blockStaff,
+    updateStaffStatus,
     deleteStaff,
 };

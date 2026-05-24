@@ -33,6 +33,7 @@ export const STAFF_ROLE_TEMPLATES: TRoleTemplate[] = [
             PERMISSIONS.CATEGORIES_WRITE,
             PERMISSIONS.FLASH_SALES_WRITE,
             PERMISSIONS.CAROUSELS_WRITE,
+            PERMISSIONS.POLICIES_WRITE,
         ],
     },
     {
@@ -54,6 +55,7 @@ export const STAFF_ROLE_TEMPLATES: TRoleTemplate[] = [
         permissions: [
             PERMISSIONS.READ_ALL,
             PERMISSIONS.CONTACTS_WRITE,
+            PERMISSIONS.POLICIES_WRITE,
             PERMISSIONS.CAROUSELS_WRITE,
             PERMISSIONS.AVATARS_WRITE,
         ],

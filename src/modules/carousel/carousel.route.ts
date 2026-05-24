@@ -1,8 +1,8 @@
 import express from "express";
-import { USER_ROLE } from "../../constants/status.constants";
+import { APP_ROLES, panelWrite } from "../../middlewares/panelAccess";
 import auth from "../../middlewares/auth";
-import { APP_ROLES } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
+import { PERMISSIONS } from "../rbac/permissions.constants";
 import { upload } from "../../utils/multer";
 import { carouselController } from "./carousel.controller";
 import { carouselValidation } from "./carousel.validation";
@@ -12,7 +12,7 @@ const router = express.Router();
 router.post(
     "/",
     upload.single("image"),
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.CAROUSELS_WRITE),
     validateRequest(carouselValidation.createCarouselZodSchema),
     carouselController.createCarouselController
 );
@@ -20,14 +20,14 @@ router.post(
 router.patch(
     "/:id",
     upload.single("image"),
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.CAROUSELS_WRITE),
     validateRequest(carouselValidation.updateCarouselZodSchema),
     carouselController.updateCarouselController
 );
 
 router.delete(
     "/:id",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.CAROUSELS_WRITE),
     carouselController.deleteCarouselController
 );
 

@@ -5,6 +5,7 @@ import { USER_ROLE, USER_STATUS } from "../../constants/status.constants";
 import { getEffectivePermissions } from "../rbac/rbac.utils";
 import { AvatarModel } from "../avatar/avatar.model";
 import { UserModel } from "./users.model";
+import { setUserStatus } from "./user-status.service";
 
 /**
  * Get Profile by user id
@@ -92,22 +93,7 @@ const getAllUsers = async (query: Record<string, unknown>, viewerRole?: string) 
  * @returns updated user
  */
 const updateStatus = async (userId: string, status: string) => {
-  const target = await UserModel.findById(userId).select("role");
-  if (!target) {
-    throw new AppError(httpStatus.NOT_FOUND, "User not found");
-  }
-  if (target.role === USER_ROLE.ADMIN || target.role === USER_ROLE.SUPER_ADMIN) {
-    throw new AppError(
-      httpStatus.FORBIDDEN,
-      "Admin and Super Admin status cannot be updated."
-    );
-  }
-
-  const user = await UserModel.findByIdAndUpdate(userId, { status }, { new: true });
-  if (!user) {
-    throw new AppError(httpStatus.NOT_FOUND, "User not found");
-  }
-  return user;
+  return setUserStatus(userId, status);
 };
 
 /**

@@ -142,9 +142,10 @@ export const addHelpfulReviewController = catchAsync(async (req: Request, res: R
 export const deleteReviewController = catchAsync(async (req: Request, res: Response) => {
     const { reviewId } = req.params as { reviewId: string };
     const userId = req.user?.id as string;
-    const role = req.user?.role as string;
-
-    const { review, product } = await deleteReviewService(reviewId, userId, role);
+    const { review, product } = await deleteReviewService(reviewId, userId, {
+        role: req.user?.role as string,
+        permissions: req.user?.permissions as string[] | undefined,
+    });
 
     sendResponse(res, {
         success: true,

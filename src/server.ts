@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import app from "./app";
 import config from "./config";
 import seedDatabase from "./DB";
+import { ensureTtlIndexes } from "./DB/ensureTtlIndexes";
 
 let server: Server;
 
@@ -37,6 +38,7 @@ async function main() {
     const dbConnection = await mongoose.connect(config.MONGO_URI as string);
     // console.log(dbConnection.connection.host);
     console.log("Connected to database");
+    await ensureTtlIndexes();
     await seedDatabase();
 
     // start server

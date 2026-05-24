@@ -1,17 +1,16 @@
 import express from "express";
-import { USER_ROLE } from "../../constants/status.constants";
+import { APP_ROLES, panelRead, panelWrite } from "../../middlewares/panelAccess";
 import auth from "../../middlewares/auth";
-import { APP_ROLES, panelRead } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
+import { PERMISSIONS } from "../rbac/permissions.constants";
 import { contactController } from "./contact.controller";
 import { contactValidation } from "./contact.validation";
 
 const router = express.Router();
 
-// Admin routes
 router.post(
     "/",
-    auth(USER_ROLE.ADMIN),
+    ...panelWrite(PERMISSIONS.CONTACTS_WRITE),
     validateRequest(contactValidation.createContactZodSchema),
     contactController.createContactController
 );
@@ -26,18 +25,17 @@ router.get(
 
 router.patch(
     "/:id",
-    auth(USER_ROLE.ADMIN),
+    ...panelWrite(PERMISSIONS.CONTACTS_WRITE),
     validateRequest(contactValidation.updateContactZodSchema),
     contactController.updateContactController
 );
 
 router.delete(
     "/:id",
-    auth(USER_ROLE.ADMIN),
+    ...panelWrite(PERMISSIONS.CONTACTS_WRITE),
     contactController.deleteContactController
 );
 
-// Public route - get active contacts
 router.get(
     "/",
     auth(...APP_ROLES),

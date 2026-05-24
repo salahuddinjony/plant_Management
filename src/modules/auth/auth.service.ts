@@ -26,6 +26,10 @@ import {
     createPasswordResetSession,
     consumePasswordResetSession,
 } from "./password-reset-session.service";
+import {
+    markUnusedInvitesConsumed,
+    STAFF_INVITE_ACCEPTED_VIA,
+} from "../staff/staff-credentials.util";
 import { TLogin } from "./auth.validation";
 
 const FORGOT_PASSWORD_GENERIC_MESSAGE =
@@ -131,8 +135,28 @@ const signUpService = async (payload: TSignUp) => {
         throw new AppError(status.BAD_REQUEST, "User already exists");
     }
 
-    const expiresAt = new Date(Date.now() + PENDING_SIGNUP_TTL_MS);
     const hashedPassword = await hashPassword(payload.password);
+
+    // Admin app: first admin registers immediately (no OTP step).
+    if (resolvedRole === USER_ROLE.ADMIN) {
+        const newUser = await UserModel.create({
+            name: payload.name,
+            emailOrPhone,
+            password: hashedPassword,
+            profilePicture: payload.profilePicture,
+            role: USER_ROLE.ADMIN,
+            status: USER_STATUS.ACTIVE,
+        });
+
+        const tokens = await issueTokensForUser(newUser);
+        return {
+            requiresOtp: false,
+            message: "Admin account created successfully.",
+            ...tokens,
+        };
+    }
+
+    const expiresAt = new Date(Date.now() + PENDING_SIGNUP_TTL_MS);
 
     try {
         await PendingSignupModel.findOneAndUpdate(
@@ -162,10 +186,11 @@ const signUpService = async (payload: TSignUp) => {
         };
     } catch (error) {
         await PendingSignupModel.deleteOne({ emailOrPhone });
-        await OtpModel.updateMany(
-            { identifier: emailOrPhone, purpose: "signup", consumedAt: null },
-            { $set: { consumedAt: new Date() } }
-        );
+        await OtpModel.deleteMany({
+            identifier: emailOrPhone,
+            purpose: "signup",
+            consumedAt: null,
+        });
         throw error;
     }
 };
@@ -339,9 +364,16 @@ const changePasswordService = async (
 
     user.password = newPass;
     user.passwordChangedAt = new Date();
+    if (user.role === USER_ROLE.STAFF) {
+        user.staffCredentialsEstablishedAt = new Date();
+    }
     user.accessToken = undefined;
     user.refreshToken = undefined;
     await user.save();
+
+    if (user.role === USER_ROLE.STAFF) {
+        await markUnusedInvitesConsumed(user._id, STAFF_INVITE_ACCEPTED_VIA.SELF);
+    }
 
     return { message: "Password changed successfully" };
 };
@@ -406,9 +438,16 @@ const resetPasswordService = async (resetToken: string, newPassword: string) => 
 
     user.password = newPassword;
     user.passwordChangedAt = new Date();
+    if (user.role === USER_ROLE.STAFF) {
+        user.staffCredentialsEstablishedAt = new Date();
+    }
     user.accessToken = undefined;
     user.refreshToken = undefined;
     await user.save();
+
+    if (user.role === USER_ROLE.STAFF) {
+        await markUnusedInvitesConsumed(user._id, STAFF_INVITE_ACCEPTED_VIA.SELF);
+    }
 
     return { message: "Password reset successful" };
 };

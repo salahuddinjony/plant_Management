@@ -17,6 +17,7 @@ const PERMISSION_LABELS: Record<string, string> = {
     [PERMISSIONS.FLASH_SALES_WRITE]: "Manage flash sales",
     [PERMISSIONS.CAROUSELS_WRITE]: "Manage carousels",
     [PERMISSIONS.CONTACTS_WRITE]: "Manage contacts",
+    [PERMISSIONS.POLICIES_WRITE]: "Manage purchase disclaimers & policies",
     [PERMISSIONS.AVATARS_WRITE]: "Manage avatars",
     [PERMISSIONS.ORDER_SETTINGS_WRITE]: "Order & delivery settings",
     [PERMISSIONS.PAYMENT_METHODS_WRITE]: "Payment methods",

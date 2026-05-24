@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { USER_ROLE } from "../../constants/status.constants";
 import auth from "../../middlewares/auth";
-import { APP_ROLES, panelRead } from "../../middlewares/panelAccess";
+import { APP_ROLES, panelGuard, panelWrite } from "../../middlewares/panelAccess";
 import validateRequest from "../../middlewares/validateRequest";
+import { PERMISSIONS } from "../rbac/permissions.constants";
 import { transactionController } from "./transaction.controller";
 import { transactionValidation } from "./transaction.validation";
 
@@ -32,7 +33,7 @@ transactionRouter.get(
  */
 transactionRouter.get(
     "/history/all",
-    ...panelRead,
+    ...panelGuard(PERMISSIONS.READ_ALL, PERMISSIONS.TRANSACTIONS_READ),
     transactionController.getAllTransactionHistoryController
 );
 
@@ -59,7 +60,7 @@ transactionRouter.get(
  */
 transactionRouter.patch(
     "/:id/status",
-    auth(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    ...panelWrite(PERMISSIONS.TRANSACTIONS_WRITE),
     validateRequest(transactionValidation.updateTransactionStatusZodSchema),
     transactionController.updateTransactionStatusController
 );

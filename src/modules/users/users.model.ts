@@ -66,6 +66,10 @@ const UserSchema = new Schema<TUser, IUserModel>(
     passwordChangedAt: {
       type: Date,
     },
+    staffCredentialsEstablishedAt: {
+      type: Date,
+      default: null,
+    },
     accessToken: {
       type: String,
     },

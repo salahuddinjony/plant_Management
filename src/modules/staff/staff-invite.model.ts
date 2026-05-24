@@ -13,6 +13,7 @@ export type TStaffInvite = {
     invitedBy: Schema.Types.ObjectId;
     isUsed: boolean;
     acceptedAt?: Date | null;
+    acceptedVia?: "invite" | "admin" | "self" | null;
     userId?: Schema.Types.ObjectId;
 };
 
@@ -25,10 +26,15 @@ const StaffInviteSchema = new Schema<TStaffInvite>(
         permissions: { type: [String], default: [] },
         inviteTokenHash: { type: String, required: true, select: false },
         inviteCodeHash: { type: String, required: true, select: false },
-        expiresAt: { type: Date, required: true, index: true },
+        expiresAt: { type: Date, required: true },
         invitedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
         isUsed: { type: Boolean, default: false, index: true },
         acceptedAt: { type: Date, default: null },
+        acceptedVia: {
+            type: String,
+            enum: ["invite", "admin", "self"],
+            default: null,
+        },
         userId: { type: Schema.Types.ObjectId, ref: "User" },
     },
     { timestamps: true }
