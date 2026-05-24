@@ -10,8 +10,9 @@ const OrderSchema = new Schema<TOrder>(
             unique: true,
         },
         userId: {
-            type: String,
+            type: Schema.Types.ObjectId,
             required: true,
+            ref: "User",
         },
         items: [
             {
@@ -63,7 +64,7 @@ const OrderSchema = new Schema<TOrder>(
         },
         orderStatus: {
             type: String,
-            enum: ["pending", "processing", "shipped", "delivered", "cancelled"],
+            enum: ["pending", "processing", "delivered", "cancelled"],
             default: "pending",
         },
         paymentStatus: {

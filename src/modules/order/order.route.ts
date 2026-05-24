@@ -44,6 +44,16 @@ orderRouter.get(
 );
 
 /**
+ * Get orders by month/year + optional status filter (admin / super-admin / staff only)
+ */
+orderRouter.get(
+    "/by-period",
+    ...panelGuard(PERMISSIONS.READ_ALL, PERMISSIONS.ORDERS_READ),
+    validateRequest(orderValidation.orderByPeriodQuerySchema),
+    orderController.getOrdersByPeriod
+);
+
+/**
  * Get specific order (By User and Admin)
  */
 orderRouter.get("/:orderId", auth(...APP_ROLES), orderController.getOrder);

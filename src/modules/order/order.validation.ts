@@ -1,6 +1,8 @@
 import { z } from "zod";
-import { ORDER_PAYMENT_STATUSES } from "./order.constants";
+import AppError from "../../errors/AppError";
+import { ORDER_PAYMENT_STATUSES, ORDER_STATUSES } from "./order.constants";
 import { isCodPayment } from "./order-payment.util";
+import { parseOrderStatusQuery } from "./order-status.util";
 
 const paymentMethodField = z
     .string({ required_error: "Payment method is required" })
@@ -69,10 +71,42 @@ export const buyNowOrderZodSchema = z.object({
 
 const updateOrderStatusValidationSchema = z.object({
     body: z.object({
-        status: z.enum(["pending", "processing", "shipped", "delivered", "cancelled"], {
+        status: z.enum(ORDER_STATUSES, {
             errorMap: () => ({ message: "Invalid order status" }),
         }),
     }),
+});
+
+const orderByPeriodQuerySchema = z.object({
+    query: z
+        .object({
+            month: z.coerce
+                .number({ required_error: "month is required", invalid_type_error: "month must be a number" })
+                .int("month must be an integer")
+                .min(1, "month must be between 1 and 12")
+                .max(12, "month must be between 1 and 12"),
+            year: z.coerce
+                .number({ required_error: "year is required", invalid_type_error: "year must be a number" })
+                .int("year must be an integer")
+                .min(2000, "year must be between 2000 and 2100")
+                .max(2100, "year must be between 2000 and 2100"),
+            orderStatus: z.string().optional(),
+            sort: z.string().optional(),
+            fields: z.string().optional(),
+        })
+        .superRefine((data, ctx) => {
+            try {
+                parseOrderStatusQuery(data.orderStatus);
+            } catch (error) {
+                if (error instanceof AppError) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: error.message,
+                        path: ["orderStatus"],
+                    });
+                }
+            }
+        }),
 });
 
 const updateOrderPaymentStatusValidationSchema = z.object({
@@ -90,4 +124,5 @@ export const orderValidation = {
     buyNowOrderZodSchema,
     updateOrderStatusValidationSchema,
     updateOrderPaymentStatusValidationSchema,
+    orderByPeriodQuerySchema,
 };

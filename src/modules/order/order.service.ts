@@ -1,3 +1,4 @@
+import { FilterQuery } from "mongoose";
 import QueryBuilder from "../../builder/QueryBuilder";
 import { USER_ROLE } from "../../constants/status.constants";
 import AppError from "../../errors/AppError";
@@ -6,6 +7,10 @@ import { AddressModel } from "../address/address.model";
 import { CartModel } from "../cart/cart.model";
 import { CouponModel } from "../coupon/coupon.model";
 import { OrderSettingsModel } from "../order-settings/order-settings.model";
+import { TOrder } from "./order.interface";
+import { getMonthUtcRange } from "./order-period.util";
+import { formatOrdersForAdminResponse } from "./order-admin-list.util";
+import { parseOrderStatusQuery } from "./order-status.util";
 import { calculateOrderCharges } from "../order-settings/order-settings.utils";
 import { assertProductPurchasable } from "../products/product-availability.util";
 import {
@@ -21,7 +26,12 @@ import {
     roundMoney,
 } from "../products/product-price.util";
 import { TransactionModel } from "../transaction/transaction.model";
-import { ORDER_INITIAL_PAYMENT_STATUS, TOrderPaymentStatus } from "./order.constants";
+import {
+    ORDER_INITIAL_PAYMENT_STATUS,
+    ORDER_STATUSES,
+    ORDER_ADMIN_POPULATES,
+    TOrderPaymentStatus,
+} from "./order.constants";
 import { resolveOrderPayment } from "./order-payment.util";
 import { ClientSession } from "mongoose";
 import { OrderModel } from "./order.model";
@@ -348,11 +358,12 @@ export const getOrderByIdService = async (orderId: string, role: string, userId:
         }
         return order;
     }
-    const order = await OrderModel.findOne({ orderId });
+    const order = await OrderModel.findOne({ orderId }).populate(ORDER_ADMIN_POPULATES).lean();
     if (!order) {
         throw new AppError(404, "Order not found");
     }
-    return order;
+    const [formatted] = await formatOrdersForAdminResponse([order]);
+    return formatted;
 };
 
 /**
@@ -372,10 +383,72 @@ export const getOrdersByUserService = async (userId: string, query: Record<strin
  * @returns Orders
  */
 export const getAllOrdersService = async (query: Record<string, unknown>) => {
-    const orderQuery = new QueryBuilder(OrderModel.find(), query).search([]).filter().sort().paginate().fields();
-    const orders = await orderQuery.modelQuery;
+    const orderQuery = new QueryBuilder(OrderModel.find().populate(ORDER_ADMIN_POPULATES), query)
+        .search([])
+        .filter()
+        .sort()
+        .paginate()
+        .fields();
+    const orders = await orderQuery.modelQuery.populate(ORDER_ADMIN_POPULATES);
+    const formattedOrders = await formatOrdersForAdminResponse(orders);
     const meta = await orderQuery.countTotal();
-    return { orders, meta };
+    return { orders: formattedOrders, meta };
+};
+
+export type TGetOrdersByPeriodParams = {
+    month: number;
+    year: number;
+    orderStatus?: string;
+    sort?: string;
+    fields?: string;
+};
+
+/**
+ * List orders for a calendar month (UTC), optional multi-status filter. Admin panel only.
+ */
+export const getOrdersByPeriodService = async (params: TGetOrdersByPeriodParams) => {
+    const { start, end } = getMonthUtcRange(params.year, params.month);
+    const statuses = parseOrderStatusQuery(params.orderStatus);
+
+    const filter: FilterQuery<TOrder> = {
+        createdAt: { $gte: start, $lt: end },
+    };
+
+    if (statuses?.length === 1) {
+        filter.orderStatus = statuses[0];
+    } else if (statuses && statuses.length > 1) {
+        filter.orderStatus = { $in: statuses };
+    }
+
+    const listQuery: Record<string, unknown> = {
+        sort: params.sort ?? "-createdAt",
+    };
+
+    if (params.fields) {
+        listQuery.fields = params.fields;
+    }
+
+    const orderQuery = new QueryBuilder(OrderModel.find(filter).populate(ORDER_ADMIN_POPULATES), listQuery)
+        .search([])
+        .sort()
+        .fields();
+
+    const orderDetails = await formatOrdersForAdminResponse(
+        await orderQuery.modelQuery.populate(ORDER_ADMIN_POPULATES)
+    );
+    const totalDocuments = await OrderModel.countDocuments(filter);
+
+    return {
+        orderDetails,
+        meta: { totalDocuments },
+        period: {
+            month: params.month,
+            year: params.year,
+            from: start.toISOString(),
+            to: end.toISOString(),
+            orderStatuses: statuses ?? null,
+        },
+    };
 };
 
 /**
@@ -385,8 +458,7 @@ export const getAllOrdersService = async (query: Record<string, unknown>) => {
  * @returns Order
  */
 export const updateOrderStatusService = async (orderId: string, status: string) => {
-    const validStatuses = ["pending", "processing", "shipped", "delivered", "cancelled"];
-    if (!validStatuses.includes(status)) {
+    if (!ORDER_STATUSES.includes(status as (typeof ORDER_STATUSES)[number])) {
         throw new AppError(400, "Invalid status");
     }
 
@@ -513,6 +585,7 @@ export const orderService = {
     getOrderByIdService,
     getOrdersByUserService,
     getAllOrdersService,
+    getOrdersByPeriodService,
     updateOrderStatusService,
     updateOrderPaymentStatusService,
     cancelOrderService,

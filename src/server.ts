@@ -45,6 +45,7 @@ async function main() {
     server = app.listen(config.PORT, () => {
       console.log(`Server running on port ${config.PORT}`);
     });
+    
   } catch (error) {
     // log any errors that occur during server startup
     const friendly = describeMongoAuthError(error);

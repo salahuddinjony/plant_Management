@@ -11,7 +11,12 @@ import {
     catalogFilterForRole,
     sanitizeCatalogQuery,
 } from "./product-availability.util";
-import { collectProductImageUrls, uploadProductImageFiles } from "./product-images.util";
+import {
+    collectProductImageUrls,
+    deleteProductImagesFromStorage,
+    parseProductImagesFromBody,
+    resolveProductImagesOnUpdate,
+} from "./product-images.util";
 import { TProduct } from "./products.interface";
 import { ProductModel } from "./products.model";
 
@@ -26,6 +31,8 @@ const PRODUCT_SEARCH_ARRAY_FIELDS = ["tags"];
 type TProductCreateInput = TProduct & { quantity?: number };
 type TProductUpdateInput = Partial<TProduct> & {
     quantity?: number;
+    /** Existing image URLs to keep (optional); new file uploads are appended. */
+    images?: string[] | string;
     file?: Express.Multer.File;
     files?: { [fieldname: string]: Express.Multer.File[] };
 };
@@ -192,23 +199,21 @@ const updateProductService = async (id: string, productData: TProductUpdateInput
             throw new Error("Product not found");
         }
 
-        let imagesUrls = collectProductImageUrls(existingProduct);
-        const replaceImages = Boolean(productData.files?.images?.length);
+        const existingUrls = collectProductImageUrls(existingProduct);
+        const keptUrlsFromBody = parseProductImagesFromBody(productData.images);
+        const newImageFiles = productData.files?.images;
 
-        if (replaceImages && productData.files?.images) {
-            for (const oldUrl of imagesUrls) {
-                try {
-                    await deleteImage(oldUrl);
-                } catch (error) {
-                    console.error("Failed to delete old product image:", error);
-                }
-            }
+        const { finalUrls, urlsToDelete, imagesChanged } = await resolveProductImagesOnUpdate({
+            existingUrls,
+            keptUrlsFromBody,
+            newFiles: newImageFiles,
+        });
 
-            imagesUrls = await uploadProductImageFiles(productData.files.images);
-            delete productData.files;
+        if (imagesChanged) {
+            await deleteProductImagesFromStorage(urlsToDelete);
         }
 
-        const { quantity, sold, ...rest } = productData;
+        const { quantity, sold, images: _images, files: _files, file: _file, ...rest } = productData;
         const updatePayload: Record<string, unknown> = { ...rest };
 
         if (quantity !== undefined) {
@@ -218,8 +223,8 @@ const updateProductService = async (id: string, productData: TProductUpdateInput
             updatePayload.sold = Number(sold);
         }
 
-        if (replaceImages) {
-            updatePayload.images = imagesUrls;
+        if (imagesChanged) {
+            updatePayload.images = finalUrls;
             updatePayload.$unset = { image: "" };
         }
 

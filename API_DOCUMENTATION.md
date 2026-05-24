@@ -313,7 +313,7 @@ Create a new product (Admin)
   |-------|----------|--------|
   | `name` | Yes | min 2 chars |
   | `price` | Yes | number ≥ 0 |
-  | `images` | **Yes** | 1–10 image files (multipart field name must be `images`) |
+  | `images` | **Yes** | 1–5 image files (multipart field name must be `images`) |
   | `quantity` | **Yes** | Initial stock; server sets `available = quantity`, `sold = 0` |
   | `description`, `discount`, `isAvailable`, `isFeatured`, `sku`, `brand`, `categoryId`, `tags`, `deliveryTime`, `courierCharge` | No | same as before |
 
@@ -458,17 +458,53 @@ Update a product (Admin)
 - **Auth**: Required (Admin/Super Admin)
 - **Content-Type**: `multipart/form-data`
 - **Params**: `id` - Product ID
+- **Max images**: **5** total per product (existing + new combined)
 - **Body** (all optional):
 
   | Field | Effect |
   |-------|--------|
   | `quantity` | Sets `available` to this value (`available = quantity`) |
   | `sold` | Sets `sold` directly (manual correction) |
+  | `images` (text) | JSON array of **existing image URLs to keep** after user removes some in the UI (see flows below) |
+  | `images` (files) | New image **files** to upload (field name `images`, same as create) |
   | Other fields | Same as create (`name`, `price`, `isAvailable`, etc.) |
 
   Do **not** send `available` in the body; use `quantity` to set stock.
 
-  Examples:
+  #### Product image update flows (frontend)
+
+  Keep local state: `keptUrls: string[]` (Cloudinary URLs still shown) and `newFiles: File[]` (picked locally, not uploaded yet).
+
+  | Case | Send `images` (URLs text) | Send `images` (files) | Backend result |
+  |------|---------------------------|------------------------|----------------|
+  | **A. Only change name/price** (no image change) | omit | omit | Images unchanged |
+  | **B. Add new photo only** | omit | new file(s) | **Append** to existing URLs |
+  | **C. Remove one (or more), no new file** | JSON array of URLs **still on screen** | omit | **Replace** to that list; removed URLs deleted from storage |
+  | **D. Remove one + add new** | JSON array of URLs **still on screen** | new file(s) | **Replace** kept URLs + append uploads |
+  | **E. Replace all images** | omit or `[]` | full new set of files (1–5) | Only new uploads (old deleted) |
+
+  **Case D example** (had 3 images, user removed B, added new file D):
+
+  - `images` (text): `["https://.../A.jpg","https://.../C.jpg"]`
+  - `images` (file): one file for D
+  - Result: `[A, C, D]` (max 5)
+
+  **Case B example** (add only):
+
+  - Do **not** send `images` text field
+  - `images` (file): new photo only
+  - Result: old images + new photo
+
+  **Validation errors**
+
+  - More than 5 images total → `400` — `A product can have at most 5 images`
+  - Zero images after update → `400` — `At least one product image is required`
+
+  Flutter/Dio: use `FormData`; for kept URLs use  
+  `formData.fields.add(MapEntry('images', jsonEncode(keptUrls)));`  
+  and attach files with `MultipartFile.fromFile` under key `images`.
+
+  Examples (other fields):
 
   ```json
   { "quantity": 80 }
@@ -476,25 +512,9 @@ Update a product (Admin)
   { "quantity": 100, "sold": 5, "price": 300 }
   ```
 
-- **Response** (200):
+- **Response** (200): product with `images: string[]` (up to 5 URLs)
 
-  ```json
-  {
-    "success": true,
-    "message": "Product updated successfully",
-    "data": {
-      "_id": "...",
-      "name": "Rose Plant",
-      "available": 80,
-      "sold": 12,
-      "price": 300,
-      "isAvailable": true,
-      "image": "https://res.cloudinary.com/..."
-    }
-  }
-  ```
-
-- **Note**: Automatically handles old image deletion when updating
+- **Note**: Removed URLs (when you send the `images` text list) are deleted from Cloudinary. When you only append files, old images are kept.
 
 #### Inventory (orders, automatic)
 
@@ -601,7 +621,7 @@ Update order status (Admin)
 
 - **Auth**: Required (Admin)
 - **Params**: `orderId`
-- **Body**: `{ status: "pending | processing | shipped | delivered | cancelled" }`
+- **Body**: `{ status: "pending | processing | delivered | cancelled" }`
 - **Response**: Updated order
 
 ### PATCH `/orders/:orderId/payment-status`
@@ -1190,7 +1210,7 @@ Get user profile
   total: number
   paymentMethod: string
   paymentStatus: "pending" | "completed" | "failed"
-  orderStatus: "pending" | "processing" | "shipped" | "delivered" | "cancelled"
+  orderStatus: "pending" | "processing" | "delivered" | "cancelled"
   createdAt: Date
   updatedAt: Date
 }

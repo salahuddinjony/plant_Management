@@ -1,6 +1,8 @@
+import { Types } from "mongoose";
+
 export type TOrder = {
     orderId: string;
-    userId: string;
+    userId: Types.ObjectId | string;
     items: {
         productId: string;
         name: string;
@@ -24,7 +26,7 @@ export type TOrder = {
         phoneNumber?: string;
         label?: "home" | "office" | "other";
     };
-    orderStatus: "pending" | "processing" | "shipped" | "delivered" | "cancelled";
+    orderStatus: "pending" | "processing" | "delivered" | "cancelled";
     paymentStatus: "pending" | "completed" | "failed";
     paymentMethod?: string;
     transactionId?: string;

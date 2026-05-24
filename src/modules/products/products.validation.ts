@@ -1,4 +1,19 @@
 import { z } from "zod";
+import { MAX_PRODUCT_IMAGES, parseProductImagesFromBody } from "./product-images.util";
+
+/** Multipart: JSON string `["url",...]`, array, or single URL (update: URLs to keep). */
+const productImagesBodySchema = z.preprocess(
+    (val) => {
+        if (val === undefined || val === null) return undefined;
+        if (typeof val === "string" && val.trim() === "") return undefined;
+        const parsed = parseProductImagesFromBody(val);
+        return parsed !== undefined ? parsed : val;
+    },
+    z
+        .array(z.string().url({ message: "Invalid image URL" }))
+        .max(MAX_PRODUCT_IMAGES, `At most ${MAX_PRODUCT_IMAGES} image URLs allowed`)
+        .optional()
+);
 
 const productFieldsSchema = z.object({
     name: z.string().min(2, "Name must be at least 2 characters long"),
@@ -13,7 +28,7 @@ const productFieldsSchema = z.object({
     tags: z.union([z.array(z.string()), z.string()]).optional(),
     deliveryTime: z.string().optional(),
     courierCharge: z.coerce.number().min(0, "Courier charge must be a positive number").optional(),
-    images: z.union([z.array(z.string().url()), z.string().url()]).optional(),
+    images: productImagesBodySchema,
 });
 
 const createProductBodySchema = productFieldsSchema.extend({

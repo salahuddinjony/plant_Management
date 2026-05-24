@@ -4,6 +4,7 @@ import auth from "../../middlewares/auth";
 import validateRequest from "../../middlewares/validateRequest";
 import { PERMISSIONS } from "../rbac/permissions.constants";
 import { upload } from "../../utils/multer";
+import { MAX_PRODUCT_IMAGES } from "./product-images.util";
 import { productController } from "./products.controller";
 import { productValidation } from "./products.validation";
 
@@ -19,7 +20,7 @@ router.post(
 
 router.patch(
     "/:id",
-    upload.fields([{ name: "images", maxCount: 10 }]),
+    upload.fields([{ name: "images", maxCount: MAX_PRODUCT_IMAGES }]),
     ...panelWrite(PERMISSIONS.PRODUCTS_WRITE),
     validateRequest(productValidation.updateProductZodSchema),
     productController.updateProductController

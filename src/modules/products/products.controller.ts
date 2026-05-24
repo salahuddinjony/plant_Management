@@ -130,9 +130,26 @@ const getAllProductsByCategoryIdController = catchAsync(
 const updateProductController = catchAsync(
     async (req: Request, res: Response) => {
         const { id } = req.params as { id: string };
-        const { name, description, price, isAvailable, discount, quantity, sold, isFeatured, sku, brand, categoryId, tags, deliveryTime, courierCharge } = req.body;
+        const {
+            name,
+            description,
+            price,
+            isAvailable,
+            discount,
+            quantity,
+            sold,
+            isFeatured,
+            sku,
+            brand,
+            categoryId,
+            tags,
+            deliveryTime,
+            courierCharge,
+            images,
+        } = req.body;
 
         const updateData: Partial<TProduct> & {
+            images?: string[] | string;
             file?: Express.Multer.File;
             files?: { [fieldname: string]: Express.Multer.File[] };
         } = {
@@ -150,6 +167,7 @@ const updateProductController = catchAsync(
             ...(tags && { tags: Array.isArray(tags) ? tags : [tags] }),
             ...(deliveryTime && { deliveryTime }),
             ...(courierCharge !== undefined && { courierCharge: Number(courierCharge) }),
+            ...(images !== undefined && { images }),
         };
 
         const files = req.files as { [fieldname: string]: Express.Multer.File[] };

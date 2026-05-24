@@ -6,6 +6,7 @@ import {
     cancelOrderService,
     createOrderService,
     getAllOrdersService,
+    getOrdersByPeriodService,
     getOrderByIdService,
     getOrdersByUserService,
     updateOrderPaymentStatusService,
@@ -128,6 +129,28 @@ export const getAllOrders = catchAsync(async (req: Request, res: Response) => {
 });
 
 /**
+ * Get orders for a month/year with optional multi-status filter (admin panel only).
+ */
+export const getOrdersByPeriod = catchAsync(async (req: Request, res: Response) => {
+    const { month, year, orderStatus, sort, fields } = req.query;
+
+    const result = await getOrdersByPeriodService({
+        month: Number(month),
+        year: Number(year),
+        orderStatus: orderStatus as string | undefined,
+        sort: sort as string | undefined,
+        fields: fields as string | undefined,
+    });
+
+    sendResponse(res, {
+        success: true,
+        statusCode: 200,
+        message: "Orders retrieved successfully",
+        data: result,
+    });
+});
+
+/**
  * Update order status (By Admin)
  * @param req Request
  * @param res Response
@@ -191,6 +214,7 @@ export const orderController = {
     getOrder,
     getOrders,
     getAllOrders,
+    getOrdersByPeriod,
     updateOrderStatus,
     updateOrderPaymentStatus,
     cancelOrder,
