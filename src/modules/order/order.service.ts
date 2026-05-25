@@ -7,10 +7,6 @@ import { AddressModel } from "../address/address.model";
 import { CartModel } from "../cart/cart.model";
 import { CouponModel } from "../coupon/coupon.model";
 import { OrderSettingsModel } from "../order-settings/order-settings.model";
-import { TOrder } from "./order.interface";
-import { getMonthUtcRange } from "./order-period.util";
-import { formatOrdersForAdminResponse } from "./order-admin-list.util";
-import { parseOrderStatusQuery } from "./order-status.util";
 import { calculateOrderCharges } from "../order-settings/order-settings.utils";
 import { assertProductPurchasable } from "../products/product-availability.util";
 import {
@@ -26,10 +22,16 @@ import {
     roundMoney,
 } from "../products/product-price.util";
 import { TransactionModel } from "../transaction/transaction.model";
+import { formatOrdersForAdminResponse, formatOrdersForUserResponse } from "./order-admin-list.util";
+import { notifyOrderDelivered, toOrderDeliveredNotifyPayload } from "./order-delivered-notification.util";
+import { getMonthUtcRange } from "./order-period.util";
+import { parseOrderStatusQuery } from "./order-status.util";
+import { TOrder } from "./order.interface";
 import {
-    ORDER_INITIAL_PAYMENT_STATUS,
-    ORDER_STATUSES,
     ORDER_ADMIN_POPULATES,
+    ORDER_INITIAL_PAYMENT_STATUS,
+    ORDER_ITEMS_PRODUCT_POPULATE,
+    ORDER_STATUSES,
     TOrderPaymentStatus,
 } from "./order.constants";
 import { resolveOrderPayment } from "./order-payment.util";
@@ -94,7 +96,8 @@ const commitOrderFromPricedLines = async (
         paymentMethod?: string;
         transactionId?: string;
         notes?: string;
-        clearCart?: boolean;
+        /** Product IDs to remove from cart after order (checkout selected lines only). */
+        removeProductIdsFromCart?: string[];
     }
 ) => {
     if (!options.paymentMethod?.trim()) {
@@ -211,8 +214,8 @@ const commitOrderFromPricedLines = async (
 
         await applyOrderInventory(items, session);
 
-        if (options.clearCart) {
-            await CartModel.deleteOne({ userId }, { session });
+        if (options.removeProductIdsFromCart?.length) {
+            await removeOrderedProductsFromCart(userId, options.removeProductIdsFromCart, session);
         }
 
         await session.commitTransaction();
@@ -224,6 +227,33 @@ const commitOrderFromPricedLines = async (
     } finally {
         session.endSession();
     }
+};
+
+/** Remove only ordered product lines from the user's cart (keeps unselected items). */
+const removeOrderedProductsFromCart = async (
+    userId: string,
+    productIdsToRemove: string[],
+    session: ClientSession
+) => {
+    const cart = await CartModel.findOne({ userId }).session(session);
+    if (!cart) {
+        return;
+    }
+
+    const removeSet = new Set(productIdsToRemove.map((id) => String(id)));
+    cart.items = cart.items.filter((item) => {
+        const productId = resolveCartItemProductId(item);
+        return productId == null || !removeSet.has(productId);
+    }) as typeof cart.items;
+
+    if (cart.items.length === 0) {
+        await CartModel.deleteOne({ userId }, { session });
+        return;
+    }
+
+    cart.subtotal = cart.items.reduce((sum, item) => sum + item.total, 0);
+    cart.total = cart.subtotal;
+    await cart.save({ session });
 };
 
 /** Resolve product id from a cart line (populated object, raw string, or missing). */
@@ -304,12 +334,16 @@ export const createOrderService = async (
         }))
     );
 
+    const orderedProductIds = selectedItems
+        .map((item) => resolveCartItemProductId(item))
+        .filter((id): id is string => Boolean(id));
+
     return commitOrderFromPricedLines(userId, shippingAddressId, pricedLines, {
         discountCode,
         paymentMethod,
         transactionId,
         notes,
-        clearCart: true,
+        removeProductIdsFromCart: orderedProductIds,
     });
 };
 
@@ -341,7 +375,6 @@ export const buyNowOrderService = async (
         paymentMethod,
         transactionId,
         notes,
-        clearCart: false,
     });
 };
 
@@ -352,11 +385,14 @@ export const buyNowOrderService = async (
  */
 export const getOrderByIdService = async (orderId: string, role: string, userId: string) => {
     if (role === USER_ROLE.USER) {
-        const order = await OrderModel.findOne({ orderId, userId });
+        const order = await OrderModel.findOne({ orderId, userId })
+            .populate(ORDER_ITEMS_PRODUCT_POPULATE)
+            .lean();
         if (!order) {
             throw new AppError(404, "Order not found");
         }
-        return order;
+        const [formatted] = await formatOrdersForUserResponse([order]);
+        return formatted;
     }
     const order = await OrderModel.findOne({ orderId }).populate(ORDER_ADMIN_POPULATES).lean();
     if (!order) {
@@ -372,8 +408,20 @@ export const getOrderByIdService = async (orderId: string, role: string, userId:
  * @returns Orders
  */
 export const getOrdersByUserService = async (userId: string, query: Record<string, unknown>) => {
-    const orderQuery = new QueryBuilder(OrderModel.find({ userId }), query).search([]).filter().sort().paginate().fields();
-    const orders = await orderQuery.modelQuery;
+    const orderQuery = new QueryBuilder(
+        OrderModel.find({ userId }).populate(ORDER_ITEMS_PRODUCT_POPULATE),
+        query
+    )
+        .search([])
+        .filter()
+        .sort()
+        .paginate()
+        .fields();
+    const orders = await formatOrdersForUserResponse(
+        (await orderQuery.modelQuery.populate(ORDER_ITEMS_PRODUCT_POPULATE).lean()) as {
+            items?: Array<{ productId?: unknown }>;
+        }[]
+    );
     const meta = await orderQuery.countTotal();
     return { orders, meta };
 };
@@ -389,8 +437,10 @@ export const getAllOrdersService = async (query: Record<string, unknown>) => {
         .sort()
         .paginate()
         .fields();
-    const orders = await orderQuery.modelQuery.populate(ORDER_ADMIN_POPULATES);
-    const formattedOrders = await formatOrdersForAdminResponse(orders);
+    const orders = await orderQuery.modelQuery.populate(ORDER_ADMIN_POPULATES).lean();
+    const formattedOrders = await formatOrdersForAdminResponse(
+        orders as { items?: Array<{ productId?: unknown }>; userId?: unknown }[]
+    );
     const meta = await orderQuery.countTotal();
     return { orders: formattedOrders, meta };
 };
@@ -434,7 +484,10 @@ export const getOrdersByPeriodService = async (params: TGetOrdersByPeriodParams)
         .fields();
 
     const orderDetails = await formatOrdersForAdminResponse(
-        await orderQuery.modelQuery.populate(ORDER_ADMIN_POPULATES)
+        (await orderQuery.modelQuery.populate(ORDER_ADMIN_POPULATES).lean()) as {
+            items?: Array<{ productId?: unknown }>;
+            userId?: unknown;
+        }[]
     );
     const totalDocuments = await OrderModel.countDocuments(filter);
 
@@ -487,6 +540,14 @@ export const updateOrderStatusService = async (orderId: string, status: string) 
         await order.save({ session });
 
         await session.commitTransaction();
+
+        if (status === "delivered" && oldStatus !== "delivered") {
+            const notifyPayload = toOrderDeliveredNotifyPayload(
+                typeof order.toObject === "function" ? order.toObject() : order
+            );
+            void notifyOrderDelivered(notifyPayload);
+        }
+
         return order;
     } catch (error) {
         await session.abortTransaction();

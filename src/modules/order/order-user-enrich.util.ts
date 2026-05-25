@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 import { UserModel } from "../users/users.model";
 import { ORDER_USER_POPULATE } from "./order.constants";
+import { toPlainOrder } from "./order-plain.util";
 
 const toUserIdString = (userId: unknown): string | null => {
     if (!userId) return null;
@@ -19,11 +20,15 @@ const toUserIdString = (userId: unknown): string | null => {
 export const enrichOrdersWithUsers = async <T extends { userId?: unknown }>(orders: T[]) => {
     if (orders.length === 0) return orders;
 
+    const plainOrders = orders.map((order) => toPlainOrder(order));
+
     const userIdStrings = [
-        ...new Set(orders.map((o) => toUserIdString(o.userId)).filter((id): id is string => Boolean(id))),
+        ...new Set(
+            plainOrders.map((o) => toUserIdString(o.userId)).filter((id): id is string => Boolean(id))
+        ),
     ];
 
-    if (userIdStrings.length === 0) return orders;
+    if (userIdStrings.length === 0) return plainOrders;
 
     const objectIds = userIdStrings
         .filter((id) => Types.ObjectId.isValid(id))
@@ -36,11 +41,7 @@ export const enrichOrdersWithUsers = async <T extends { userId?: unknown }>(orde
 
     const userById = new Map(users.map((u) => [String(u._id), u]));
 
-    return orders.map((order) => {
-        const doc = order as { toObject?: () => Record<string, unknown> };
-        const plain =
-            typeof doc.toObject === "function" ? doc.toObject() : { ...(order as Record<string, unknown>) };
-
+    return plainOrders.map((plain) => {
         const key = toUserIdString(plain.userId);
         if (key && userById.has(key)) {
             plain.userId = userById.get(key);

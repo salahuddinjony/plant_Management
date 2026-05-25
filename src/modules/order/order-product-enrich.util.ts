@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { ProductModel } from "../products/products.model";
+import { toPlainLineItem, toPlainOrder } from "./order-plain.util";
 
 const PRODUCT_SELECT = "images";
 
@@ -48,17 +49,19 @@ export const enrichOrdersWithProducts = async <T extends { items?: Array<{ produ
 ) => {
     if (orders.length === 0) return orders;
 
+    const plainOrders = orders.map((order) => toPlainOrder(order));
+
     const productIdStrings = [
         ...new Set(
-            orders.flatMap((order) =>
-                (order.items ?? []).map((item) => toProductIdString(item.productId)).filter((id): id is string =>
-                    Boolean(id)
-                )
+            plainOrders.flatMap((order) =>
+                ((order.items as Array<{ productId?: unknown }>) ?? [])
+                    .map((item) => toProductIdString(item.productId))
+                    .filter((id): id is string => Boolean(id))
             )
         ),
     ];
 
-    if (productIdStrings.length === 0) return orders;
+    if (productIdStrings.length === 0) return plainOrders;
 
     const objectIds = productIdStrings
         .filter((id) => Types.ObjectId.isValid(id))
@@ -67,12 +70,11 @@ export const enrichOrdersWithProducts = async <T extends { items?: Array<{ produ
     const products = await ProductModel.find({ _id: { $in: objectIds } }).select(PRODUCT_SELECT).lean();
     const productById = new Map(products.map((p) => [String(p._id), p]));
 
-    return orders.map((order) => {
-        const plain = { ...(order as Record<string, unknown>) };
+    return plainOrders.map((plain) => {
         const items = (plain.items as Array<{ productId?: unknown }> | undefined) ?? [];
 
         plain.items = items.map((item) => {
-            const line = { ...item };
+            const line = toPlainLineItem(item);
             const key = toProductIdString(line.productId);
             if (key && productById.has(key)) {
                 line.productId = formatProductRefForOrderLine(productById.get(key)!);
