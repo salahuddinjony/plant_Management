@@ -53,6 +53,14 @@ const jwtAccessExpiresIn = process.env.JWT_ACCESS_EXPIRES_IN || process.env.JWT_
 const jwtRefreshExpiresIn = process.env.JWT_REFRESH_EXPIRES_IN || "360";
 const smtpUserName = process.env.SMTP_USERNAME || process.env.SMTP_USER;
 
+/** Prefer SendGrid HTTP API when set (works on VPS/WiFi that block SMTP ports). */
+const sendGridApiKey = process.env.SENDGRID_API_KEY?.trim();
+const sendGridFromEmail =
+  process.env.SENDGRID_FROM_EMAIL?.trim() ||
+  process.env.SENDGRID_FROM?.trim() ||
+  smtpUserName;
+const sendGridFromName = process.env.SENDGRID_FROM_NAME?.trim() || "Nursery Bazar BD";
+
 export default {
   PORT: process.env.PORT || 8050,
   MONGO_URI: mongoUri,
@@ -73,6 +81,9 @@ export default {
       : undefined,
   smtpUserName,
   smtpPassword: process.env.SMTP_PASSWORD?.replace(/\s+/g, "").trim(),
+  sendGridApiKey,
+  sendGridFromEmail,
+  sendGridFromName,
   clientUrl: process.env.CLIENT_URL,
   smsApiKey: process.env.SMS_API_KEY,
   smsSenderName: process.env.SMS_SENDER_NAME,

@@ -2,6 +2,7 @@ import { Server } from "http";
 import mongoose from "mongoose";
 import app from "./app";
 import config from "./config";
+import { isSendGridConfigured } from "./utils/sendgridEmail";
 import seedDatabase from "./DB";
 import { ensureTtlIndexes } from "./DB/ensureTtlIndexes";
 
@@ -44,6 +45,11 @@ async function main() {
     // start server
     server = app.listen(config.PORT, () => {
       console.log(`Server running on port ${config.PORT}`);
+      if (isSendGridConfigured()) {
+        console.log(`Email: SendGrid (from ${config.sendGridFromEmail ?? "configured sender"})`);
+      } else {
+        console.log(`Email: SMTP fallback (${config.smtpHost}) — set SENDGRID_API_KEY on VPS`);
+      }
     });
     
   } catch (error) {

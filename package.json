@@ -24,6 +24,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@sendgrid/mail": "^8.1.6",
     "@types/bcryptjs": "^2.4.6",
     "@types/multer": "^1.4.13",
     "argon2": "^0.43.0",

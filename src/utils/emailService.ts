@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 import config from "../config";
 import AppError from "../errors/AppError";
+import { isSendGridConfigured, sendViaSendGrid } from "./sendgridEmail";
 
 const CONNECTION_TIMEOUT_MS = 20_000;
 
@@ -15,7 +16,6 @@ type SmtpProfile = {
     secure: boolean;
 };
 
-/** Gmail-friendly profiles — 587 first (works on more networks/VPS than 465). */
 const GMAIL_SMTP_PROFILES: SmtpProfile[] = [
     { label: "587-STARTTLS", port: 587, secure: false },
     { label: "465-SSL", port: 465, secure: true },
@@ -50,7 +50,6 @@ const getSmtpProfiles = (): SmtpProfile[] => {
 };
 
 let activeTransporter: nodemailer.Transporter | null = null;
-let activeProfileLabel: string | null = null;
 
 const createTransporter = (profile: SmtpProfile) =>
     nodemailer.createTransport(buildTransportOptions(profile));
@@ -89,7 +88,6 @@ const getWorkingTransporter = async (): Promise<nodemailer.Transporter> => {
         try {
             await transport.verify();
             activeTransporter = transport;
-            activeProfileLabel = profile.label;
             console.info(`SMTP ready (${config.smtpHost}:${profile.port}, ${profile.label})`);
             return transport;
         } catch (error) {
@@ -98,7 +96,7 @@ const getWorkingTransporter = async (): Promise<nodemailer.Transporter> => {
             if (!isConnectionError(error)) {
                 throw new AppError(
                     status.INTERNAL_SERVER_ERROR,
-                    `SMTP authentication failed. Use a Gmail App Password (16 chars, no spaces). ${message}`
+                    `SMTP authentication failed. ${message}`
                 );
             }
         }
@@ -107,30 +105,58 @@ const getWorkingTransporter = async (): Promise<nodemailer.Transporter> => {
     console.error("SMTP verification failed:", errors.join(" | "));
     throw new AppError(
         status.INTERNAL_SERVER_ERROR,
-        `Cannot reach mail server (${config.smtpHost}). Try SMTP_PORT=587 and SMTP_SECURE=false, or check firewall/VPS outbound SMTP.`
+        `Cannot reach mail server (${config.smtpHost}). Use SENDGRID_API_KEY on VPS, or check SMTP firewall settings.`
     );
 };
 
 const resetTransporter = () => {
     activeTransporter = null;
-    activeProfileLabel = null;
 };
 
-const sendWithTransporter = async (
-    mailOptions: nodemailer.SendMailOptions
-): Promise<void> => {
+const sendWithSmtp = async (mailOptions: nodemailer.SendMailOptions): Promise<void> => {
     const transport = await getWorkingTransporter();
+    const fromEmail = config.sendGridFromEmail || config.smtpUserName;
     try {
-        await transport.sendMail(mailOptions);
+        await transport.sendMail({
+            ...mailOptions,
+            from: mailOptions.from ?? `"${config.sendGridFromName}" <${fromEmail}>`,
+        });
     } catch (error) {
         if (isConnectionError(error)) {
             resetTransporter();
             const retryTransport = await getWorkingTransporter();
-            await retryTransport.sendMail(mailOptions);
+            await retryTransport.sendMail({
+                ...mailOptions,
+                from: mailOptions.from ?? `"${config.sendGridFromName}" <${fromEmail}>`,
+            });
             return;
         }
         throw error;
     }
+};
+
+/** Send via SendGrid API (HTTPS) when configured; otherwise SMTP fallback. */
+const dispatchEmail = async ({
+    to,
+    subject,
+    html,
+    text,
+}: {
+    to: string;
+    subject: string;
+    html: string;
+    text?: string;
+}) => {
+    if (isSendGridConfigured()) {
+        return sendViaSendGrid({ to, subject, html, text });
+    }
+    await sendWithSmtp({
+        to,
+        subject,
+        html,
+        text: text ?? subject,
+    });
+    return { email: to, provider: "smtp" as const };
 };
 
 const generateEmailTemplate = ({
@@ -201,12 +227,11 @@ export const sendEmail = async ({
             intro,
         });
 
-        await sendWithTransporter({
-            from: `"Nursery Bazar BD" <${config.smtpUserName}>`,
+        await dispatchEmail({
             to: email,
             subject,
-            text: `Your verification code is: ${token}`,
             html: htmlContent,
+            text: `Your verification code is: ${token}`,
         });
 
         return { email };
@@ -233,8 +258,7 @@ export const sendHtmlEmail = async ({
     text?: string;
 }) => {
     try {
-        await sendWithTransporter({
-            from: `"Nursery Bazar BD" <${config.smtpUserName}>`,
+        await dispatchEmail({
             to: email,
             subject,
             html,

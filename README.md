@@ -113,9 +113,15 @@ CLOUDINARY_CLOUD_NAME=your-cloud-name
 CLOUDINARY_API_KEY=your-api-key
 CLOUDINARY_API_SECRET=your-api-secret
 
-# Email Service
-SMTP_USERNAME=your-email
-SMTP_PASSWORD=your-password
+# Email (SendGrid recommended on VPS — uses HTTPS, not blocked like SMTP)
+SENDGRID_API_KEY=SG.xxxxxxxxxxxx
+SENDGRID_FROM_EMAIL=hello@yourdomain.com
+SENDGRID_FROM_NAME=Nursery Bazar BD
+
+# Optional SMTP fallback (local dev only if SENDGRID_API_KEY is unset)
+# SMTP_HOST=smtp.gmail.com
+# SMTP_USERNAME=your-email
+# SMTP_PASSWORD=your-app-password
 
 # Server
 PORT=5000

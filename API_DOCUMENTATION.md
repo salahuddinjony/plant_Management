@@ -58,10 +58,14 @@ JWT_EXPIRES_IN=7d
 CLOUDINARY_CLOUD_NAME=your-cloud-name
 CLOUDINARY_API_KEY=your-api-key
 CLOUDINARY_API_SECRET=your-api-secret
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
+SENDGRID_API_KEY=SG.xxxx
+SENDGRID_FROM_EMAIL=hello@yourdomain.com
+SENDGRID_FROM_NAME=Nursery Bazar BD
+# Optional SMTP fallback if SENDGRID_API_KEY is not set:
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-email@gmail.com
+# SMTP_PASSWORD=your-app-password
 PORT=5000
 NODE_ENV=development
 ```
