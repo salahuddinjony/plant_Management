@@ -33,6 +33,14 @@ const escapeHtml = (value: string) =>
 
 const formatMoney = (amount: number) => `৳${amount.toLocaleString("en-BD")}`;
 
+const BD_DATETIME_FORMAT: Intl.DateTimeFormatOptions = {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Dhaka",
+};
+
+const formatDateTimeBd = (date: Date) => date.toLocaleString("en-BD", BD_DATETIME_FORMAT);
+
 const buildItemsRowsHtml = (items: TOrderDeliveredNotifyOrder["items"]) =>
     items
         .map(
@@ -53,8 +61,8 @@ const buildOrderDeliveredEmailHtml = ({
     order: TOrderDeliveredNotifyOrder;
 }) => {
     const deliveredAt = order.updatedAt
-        ? new Date(order.updatedAt).toLocaleString("en-BD", { dateStyle: "medium", timeStyle: "short" })
-        : new Date().toLocaleString("en-BD", { dateStyle: "medium", timeStyle: "short" });
+        ? formatDateTimeBd(new Date(order.updatedAt))
+        : formatDateTimeBd(new Date());
 
     const addressParts = [
         order.shippingAddress.street,
