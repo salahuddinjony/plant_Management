@@ -9,22 +9,23 @@ type MimSmsResponse = {
     data?: unknown;
 };
 
+/** MiM SMS API V2 — used for OTP, staff invites, order delivered, etc. */
 export const sendMimSms = async (mobileNumber: string, message: string) => {
-    if (!config.smsApiKey || !config.mimSmsUrl || !config.smsUserName) {
+    if (!config.smsApiKey || !config.smsUserName || !config.smsSenderName) {
         throw new AppError(
             status.INTERNAL_SERVER_ERROR,
-            "SMS provider is not configured"
+            "SMS provider is not configured (SMS_API_KEY, SMS_USER_NAME, SMS_SENDER_NAME)"
         );
     }
 
     const body = {
-        ApiKey: config.smsApiKey,
-        MobileNumber: mobileNumber,
-        SenderName: config.smsSenderName || "8809643902635",
-        UserName: config.smsUserName,
-        TransactionType: "T",
-        Message: message,
-        CampaignId:config.smsCampaignName || "Live",
+        apiKey: config.smsApiKey,
+        userName: config.smsUserName,
+        senderName: config.smsSenderName,
+        transactionType: "T",
+        mobileNumber,
+        message,
+        campaignName: config.smsCampaignName,
     };
 
     const response = await fetch(config.mimSmsUrl, {
