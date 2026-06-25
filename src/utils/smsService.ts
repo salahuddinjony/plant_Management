@@ -20,11 +20,11 @@ export const sendMimSms = async (mobileNumber: string, message: string) => {
     const body = {
         ApiKey: config.smsApiKey,
         MobileNumber: mobileNumber,
-        SenderName: config.smsSenderName || "MiM SMS",
+        SenderName: config.smsSenderName || "8809643902635",
         UserName: config.smsUserName,
         TransactionType: "T",
         Message: message,
-        CampaignId: "null",
+        CampaignId:config.smsCampaignName || "Live",
     };
 
     const response = await fetch(config.mimSmsUrl, {

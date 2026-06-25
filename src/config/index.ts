@@ -87,6 +87,7 @@ export default {
   clientUrl: process.env.CLIENT_URL,
   smsApiKey: process.env.SMS_API_KEY,
   smsSenderName: process.env.SMS_SENDER_NAME,
+  smsCampaignName: process.env.SMS_CAMPAIGN_NAME,
   smsUserName: process.env.SMS_USER_NAME,
   mimSmsUrl: process.env.MIM_SMS_URL,
   adminInviteBaseUrl:
