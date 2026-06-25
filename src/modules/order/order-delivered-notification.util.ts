@@ -120,14 +120,8 @@ const buildOrderDeliveredSms = ({
 }: {
     customerName: string;
     order: TOrderDeliveredNotifyOrder;
-}) => {
-    const itemSummary =
-        order.items.length === 1
-            ? `${order.items[0].name} x${order.items[0].quantity}`
-            : `${order.items[0].name} x${order.items[0].quantity}${order.items.length > 1 ? ` +${order.items.length - 1} more` : ""}`;
-
-    return `Nursery Bazar: Hi ${customerName}, order ${order.orderId} is delivered. ${itemSummary}. Total ${formatMoney(order.total)}. Thank you!`;
-};
+}) =>
+    `Nursery Bazar BD: Hi ${customerName}, order ${order.orderId} delivered. Total Tk ${order.total.toLocaleString("en-BD")}. Thank you!`;
 
 const buildOrderDeliveredEmailText = ({
     customerName,
