@@ -20,6 +20,25 @@ const normalizeProductImages = (plain: Record<string, unknown>): Record<string, 
     return { ...rest, images: images ?? [] };
 };
 
+const normalizeProductCategories = (plain: Record<string, unknown>): Record<string, unknown> => {
+    const { categoryId: legacyCategoryId, ...rest } = plain;
+    const categoryIds = Array.isArray(rest.categoryIds)
+        ? [...rest.categoryIds]
+        : legacyCategoryId
+            ? [legacyCategoryId]
+            : [];
+
+    if (
+        legacyCategoryId &&
+        Array.isArray(rest.categoryIds) &&
+        !rest.categoryIds.some((id) => String(id) === String(legacyCategoryId))
+    ) {
+        categoryIds.push(legacyCategoryId);
+    }
+
+    return { ...rest, categoryIds };
+};
+
 const withPricingFields = (plain: Record<string, unknown>): Record<string, unknown> => {
     const price = Number(plain.price) || 0;
     const discount = Number(plain.discount) || 0;
@@ -37,7 +56,9 @@ const withPricingFields = (plain: Record<string, unknown>): Record<string, unkno
 export const formatProductResponse = (product: unknown, role?: string) => {
     if (!product) return product;
 
-    const plain = withPricingFields(normalizeProductImages(toPlainProduct(product)));
+    const plain = withPricingFields(
+        normalizeProductCategories(normalizeProductImages(toPlainProduct(product)))
+    );
     const available = (plain.available as number) ?? 0;
 
     if (isAdminRole(role)) {

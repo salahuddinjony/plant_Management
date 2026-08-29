@@ -33,7 +33,15 @@ class QueryBuilder<T> {
   // Filter method
   filter() {
     const filterQueries = { ...this.query };
-    const excludedFields = ["searchTerm", "page", "limit", "sortBy", "sortOrder", "fields"];
+    const excludedFields = [
+      "searchTerm",
+      "page",
+      "limit",
+      "sort",
+      "sortBy",
+      "sortOrder",
+      "fields",
+    ];
 
     excludedFields.forEach((field) => {
       delete filterQueries[field];

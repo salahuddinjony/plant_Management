@@ -8,6 +8,9 @@ export type TProduct = {
     sold?: number;
     sku?: string;
     brand?: string;
+    /** Categories assigned to this product. */
+    categoryIds?: string[];
+    /** @deprecated Kept temporarily so existing documents can be migrated safely. */
     categoryId?: string;
     tags?: string[];
     deliveryTime?: string;

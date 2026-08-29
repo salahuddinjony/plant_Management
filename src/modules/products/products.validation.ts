@@ -15,6 +15,28 @@ const productImagesBodySchema = z.preprocess(
         .optional()
 );
 
+const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid category ID");
+
+/** Multipart accepts a JSON string; JSON requests can send a string array. */
+const productCategoryIdsBodySchema = z.preprocess(
+    (val) => {
+        if (val === undefined || val === null) return undefined;
+        if (Array.isArray(val)) return val;
+        if (typeof val === "string") {
+            const trimmed = val.trim();
+            if (!trimmed) return undefined;
+            try {
+                const parsed: unknown = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) return parsed;
+            } catch {
+                // Let Zod return the validation error for malformed input.
+            }
+        }
+        return val;
+    },
+    z.array(objectIdSchema).optional()
+);
+
 const productFieldsSchema = z.object({
     name: z.string().min(2, "Name must be at least 2 characters long"),
     description: z.string().optional(),
@@ -24,7 +46,9 @@ const productFieldsSchema = z.object({
     isFeatured: z.coerce.boolean().optional(),
     sku: z.string().optional(),
     brand: z.string().optional(),
-    categoryId: z.string().optional(),
+    categoryIds: productCategoryIdsBodySchema,
+    /** @deprecated Accepted temporarily while old clients are migrated. */
+    categoryId: objectIdSchema.optional(),
     tags: z.union([z.array(z.string()), z.string()]).optional(),
     deliveryTime: z.string().optional(),
     courierCharge: z.coerce.number().min(0, "Courier charge must be a positive number").optional(),

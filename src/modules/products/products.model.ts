@@ -59,6 +59,11 @@ const ProductSchema = new Schema<TProduct>(
             type: String,
             trim: true,
         },
+        categoryIds: {
+            type: [{ type: Schema.Types.ObjectId, ref: "category" }],
+            default: [],
+        },
+        // Legacy field retained temporarily for backward-compatible reads/migration.
         categoryId: {
             type: Schema.Types.ObjectId,
             ref: "category",
@@ -95,6 +100,7 @@ const ProductSchema = new Schema<TProduct>(
     { timestamps: true }
 );
 
+ProductSchema.index({ categoryIds: 1 });
 
 // Post hook to handle E11000 duplicate key errors
 ProductSchema.post("save", function (error: any, doc: any, next: any) {

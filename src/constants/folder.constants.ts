@@ -10,6 +10,7 @@ export const FOLDER_NAMES = {
   REVIEW: 'reviews',
   CAROUSEL: 'carousels',
   FLASHSALE: 'flash-sales',
+  BLOG: 'blogs',
 
   // Utility function to get full path
   getPath: (folder?: string): string => {

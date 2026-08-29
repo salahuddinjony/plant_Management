@@ -51,10 +51,11 @@ export const STAFF_ROLE_TEMPLATES: TRoleTemplate[] = [
     {
         slug: "marketing",
         name: "Marketing",
-        description: "Read all; manage contact, carousels, and avatars.",
+        description: "Read all; manage contact, blog posts, carousels, and avatars.",
         permissions: [
             PERMISSIONS.READ_ALL,
             PERMISSIONS.CONTACTS_WRITE,
+            PERMISSIONS.BLOGS_WRITE,
             PERMISSIONS.POLICIES_WRITE,
             PERMISSIONS.CAROUSELS_WRITE,
             PERMISSIONS.AVATARS_WRITE,

@@ -28,7 +28,7 @@ const getCategoryByIdService = async (id: string) => {
 
 const getAllCategoriesService = async (query: Record<string, unknown>) => {
     const categoryQuery = new QueryBuilder(CategoryModel.find({}), query)
-        .search(["title", "description"])
+        .search(["title"])
         .filter()
         .sort()
         .paginate()
@@ -101,7 +101,7 @@ const deleteCategoryService = async (id: string) => {
 
         // Check if any products are using this category
         const productsWithCategory = await ProductModel.countDocuments({
-            categoryId: id
+            $or: [{ categoryIds: id }, { categoryId: id }],
         }).session(session);
 
         if (productsWithCategory > 0) {

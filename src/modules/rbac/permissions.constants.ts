@@ -25,6 +25,7 @@ export const PERMISSIONS = {
     COUPONS_WRITE: "coupons:write",
     USERS_READ: "users:read",
     REVIEWS_WRITE: "reviews:write",
+    BLOGS_WRITE: "blogs:write",
 
     STAFF_INVITE: "staff:invite",
     STAFF_MANAGE: "staff:manage",

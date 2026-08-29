@@ -4,6 +4,7 @@ import sendResponse from "../../utils/sendResponse";
 import {
     buyNowOrderService,
     cancelOrderService,
+    calculateOrderQuoteService,
     createOrderService,
     getAllOrdersService,
     getOrdersByPeriodService,
@@ -12,6 +13,18 @@ import {
     updateOrderPaymentStatusService,
     updateOrderStatusService,
 } from "./order.service";
+
+export const getOrderQuote = catchAsync(async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    const quote = await calculateOrderQuoteService(userId, req.body);
+
+    sendResponse(res, {
+        success: true,
+        statusCode: 200,
+        message: "Order quote calculated successfully",
+        data: quote,
+    });
+});
 
 /**
  * Create order (By User)
@@ -24,6 +37,7 @@ export const buyNowOrder = catchAsync(async (req: Request, res: Response) => {
         productId,
         quantity,
         shippingAddressId,
+        couponCode,
         discountCode,
         paymentMethod,
         transactionId,
@@ -35,7 +49,7 @@ export const buyNowOrder = catchAsync(async (req: Request, res: Response) => {
         productId,
         quantity,
         shippingAddressId,
-        discountCode,
+        couponCode ?? discountCode,
         paymentMethod,
         transactionId,
         notes
@@ -51,14 +65,21 @@ export const buyNowOrder = catchAsync(async (req: Request, res: Response) => {
 
 export const createOrder = catchAsync(async (req: Request, res: Response) => {
     const userId = req.user?.id;
-    const { shippingAddressId, selectedProductIds, discountCode, paymentMethod, transactionId, notes } =
-        req.body;
+    const {
+        shippingAddressId,
+        selectedProductIds,
+        couponCode,
+        discountCode,
+        paymentMethod,
+        transactionId,
+        notes,
+    } = req.body;
 
     const order = await createOrderService(
         userId,
         shippingAddressId,
         selectedProductIds,
-        discountCode,
+        couponCode ?? discountCode,
         paymentMethod,
         transactionId,
         notes
@@ -209,6 +230,7 @@ export const cancelOrder = catchAsync(async (req: Request, res: Response) => {
 });
 
 export const orderController = {
+    getOrderQuote,
     buyNowOrder,
     createOrder,
     getOrder,

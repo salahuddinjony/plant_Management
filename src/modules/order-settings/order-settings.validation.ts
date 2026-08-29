@@ -1,5 +1,22 @@
 import { z } from "zod";
 
+const categoryIdsSchema = z.preprocess(
+    (value) => {
+        if (value === undefined || value === null || value === "") return [];
+        if (Array.isArray(value)) return value;
+        if (typeof value === "string") {
+            try {
+                const parsed: unknown = JSON.parse(value);
+                if (Array.isArray(parsed)) return parsed;
+            } catch {
+                // Let Zod report malformed input.
+            }
+        }
+        return value;
+    },
+    z.array(z.string().regex(/^[a-f\d]{24}$/i, "Invalid category ID"))
+);
+
 const taxSchema = z.object({
     isActive: z.coerce.boolean().default(true),
     taxType: z.enum(["percentage", "fixed"]),
@@ -36,6 +53,7 @@ const shippingFieldsSchema = z.object({
     shippingType: z.enum(["flat", "free_above_threshold", "free"]),
     shippingFlatAmount: z.coerce.number().min(0).optional(),
     freeShippingMinSubtotal: z.coerce.number().min(0).optional(),
+    categoryIds: categoryIdsSchema.optional(),
 });
 
 const validateShippingShape = (
@@ -73,14 +91,46 @@ const validateShippingShape = (
 
 const shippingSchema = shippingFieldsSchema.superRefine(validateShippingShape);
 
-const createOrderSettingsBodySchema = z.object({
-    setAsActive: z.coerce.boolean().default(false),
-    tax: createTaxSchema,
-    shipping: shippingSchema,
-});
+const createOrderSettingsBodySchema = z
+    .object({
+        name: z.string().trim().min(2).optional(),
+        isDefault: z.coerce.boolean().optional(),
+        setAsActive: z.coerce.boolean().default(false),
+        tax: createTaxSchema,
+        shipping: shippingSchema,
+    })
+    .superRefine((data, ctx) => {
+        const categoryIds = data.shipping.categoryIds ?? [];
+
+        if (data.isDefault === true && categoryIds.length > 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "A default delivery setting cannot have categories",
+                path: ["shipping", "categoryIds"],
+            });
+        }
+
+        if (data.isDefault === false && categoryIds.length === 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Select at least one category for a category delivery setting",
+                path: ["shipping", "categoryIds"],
+            });
+        }
+
+        if (data.isDefault === false && !data.name?.trim()) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Name is required for a category delivery setting",
+                path: ["name"],
+            });
+        }
+    });
 
 const updateOrderSettingsBodySchema = z
     .object({
+        name: z.string().trim().min(2).optional(),
+        isDefault: z.coerce.boolean().optional(),
         setAsActive: z.coerce.boolean().optional(),
         tax: taxSchema.partial().optional(),
         shipping: shippingFieldsSchema.partial().optional(),

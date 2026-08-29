@@ -153,6 +153,67 @@ const buildOrderDeliveredEmailText = ({
         .join("\n");
 };
 
+const buildOrderCancelledEmailHtml = ({
+    customerName,
+    order,
+}: {
+    customerName: string;
+    order: TOrderDeliveredNotifyOrder;
+}) => {
+    const cancelledAt = order.updatedAt
+        ? formatDateTimeBd(new Date(order.updatedAt))
+        : formatDateTimeBd(new Date());
+
+    return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Order cancelled</title></head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f4;">
+  <div style="max-width:600px;margin:0 auto;padding:20px;">
+    <div style="background:#fff;border-radius:10px;padding:32px;">
+      <h1 style="color:#b91c1c;font-size:22px;margin:0 0 8px;">Your order has been cancelled</h1>
+      <p style="color:#666;margin:0 0 24px;">Nursery Bazar BD</p>
+      <p>Hello ${escapeHtml(customerName)},</p>
+      <p>Your order <strong>${escapeHtml(order.orderId)}</strong> was cancelled on ${escapeHtml(cancelledAt)}.</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tbody>${buildItemsRowsHtml(order.items)}</tbody>
+      </table>
+      <p style="margin:8px 0;"><strong>Order total:</strong> ${formatMoney(order.total)}</p>
+      <p style="margin:8px 0;color:#666;">If you have questions about this cancellation, please contact Nursery Bazar BD.</p>
+      <p style="color:#999;font-size:12px;margin-top:28px;">Thank you for shopping with us.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+};
+
+const buildOrderCancelledSms = ({
+    customerName,
+    order,
+}: {
+    customerName: string;
+    order: TOrderDeliveredNotifyOrder;
+}) =>
+    `Nursery Bazar BD: Hi ${customerName}, order ${order.orderId} was cancelled. Total Tk ${order.total.toLocaleString("en-BD")}. Contact us for help.`;
+
+const buildOrderCancelledEmailText = ({
+    customerName,
+    order,
+}: {
+    customerName: string;
+    order: TOrderDeliveredNotifyOrder;
+}) =>
+    [
+        `Hello ${customerName},`,
+        ``,
+        `Your order ${order.orderId} was cancelled.`,
+        ``,
+        `Order total: ${formatMoney(order.total)}`,
+        `Deliver to: ${order.shippingAddress.city}, ${order.shippingAddress.phoneNumber}`,
+        ``,
+        `Please contact Nursery Bazar BD if you have any questions.`,
+    ].join("\n");
+
 export const sendOrderDeliveredNotification = async ({
     order,
     customerName,
@@ -175,6 +236,31 @@ export const sendOrderDeliveredNotification = async ({
     }
 
     await sendMimSms(toMimMobileNumber(emailOrPhone), buildOrderDeliveredSms({ customerName, order }));
+    return { channel: "sms" as const };
+};
+
+export const sendOrderCancelledNotification = async ({
+    order,
+    customerName,
+    emailOrPhone,
+}: {
+    order: TOrderDeliveredNotifyOrder;
+    customerName: string;
+    emailOrPhone: string;
+}) => {
+    const channel = getIdentifierChannel(emailOrPhone.trim());
+
+    if (channel === "email") {
+        await sendHtmlEmail({
+            email: emailOrPhone.trim(),
+            subject: `Your order ${order.orderId} has been cancelled - Nursery Bazar BD`,
+            html: buildOrderCancelledEmailHtml({ customerName, order }),
+            text: buildOrderCancelledEmailText({ customerName, order }),
+        });
+        return { channel: "email" as const };
+    }
+
+    await sendMimSms(toMimMobileNumber(emailOrPhone), buildOrderCancelledSms({ customerName, order }));
     return { channel: "sms" as const };
 };
 
@@ -205,6 +291,36 @@ export const notifyOrderDelivered = async (order: TOrderDeliveredNotifyOrder) =>
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[order-delivered] Failed for order ${order.orderId}:`, message);
+    }
+};
+
+/** Load customer and notify when an order is cancelled (errors are logged, not thrown). */
+export const notifyOrderCancelled = async (order: TOrderDeliveredNotifyOrder) => {
+    const userId = String(order.userId);
+
+    const user = await UserModel.findById(userId).select("name emailOrPhone").lean();
+    if (!user) {
+        console.warn(`[order-cancelled] User not found for order ${order.orderId} (userId=${userId})`);
+        return;
+    }
+
+    if (!user.emailOrPhone?.trim()) {
+        console.warn(`[order-cancelled] No contact for user ${userId}, order ${order.orderId}`);
+        return;
+    }
+
+    try {
+        const result = await sendOrderCancelledNotification({
+            order,
+            customerName: user.name,
+            emailOrPhone: user.emailOrPhone,
+        });
+        console.info(
+            `[order-cancelled] Notified ${result.channel} for order ${order.orderId} → ${user.emailOrPhone}`
+        );
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[order-cancelled] Failed for order ${order.orderId}:`, message);
     }
 };
 

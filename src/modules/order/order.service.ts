@@ -1,4 +1,4 @@
-import { FilterQuery } from "mongoose";
+import { ClientSession, FilterQuery } from "mongoose";
 import QueryBuilder from "../../builder/QueryBuilder";
 import { USER_ROLE } from "../../constants/status.constants";
 import AppError from "../../errors/AppError";
@@ -6,6 +6,8 @@ import { DEFAULT_ADDRESS_LABEL } from "../address/address.constants";
 import { AddressModel } from "../address/address.model";
 import { CartModel } from "../cart/cart.model";
 import { CouponModel } from "../coupon/coupon.model";
+import { getActiveCategoryOrderSettingsService } from "../order-settings/order-settings.service";
+import { TOrderSettings } from "../order-settings/order-settings.interface";
 import { OrderSettingsModel } from "../order-settings/order-settings.model";
 import { calculateOrderCharges } from "../order-settings/order-settings.utils";
 import { assertProductPurchasable } from "../products/product-availability.util";
@@ -23,7 +25,11 @@ import {
 } from "../products/product-price.util";
 import { TransactionModel } from "../transaction/transaction.model";
 import { formatOrdersForAdminResponse, formatOrdersForUserResponse } from "./order-admin-list.util";
-import { notifyOrderDelivered, toOrderDeliveredNotifyPayload } from "./order-delivered-notification.util";
+import {
+    notifyOrderCancelled,
+    notifyOrderDelivered,
+    toOrderDeliveredNotifyPayload,
+} from "./order-delivered-notification.util";
 import { getMonthUtcRange } from "./order-period.util";
 import { parseOrderStatusQuery } from "./order-status.util";
 import { TOrder } from "./order.interface";
@@ -35,7 +41,6 @@ import {
     TOrderPaymentStatus,
 } from "./order.constants";
 import { resolveOrderPayment } from "./order-payment.util";
-import { ClientSession } from "mongoose";
 import { OrderModel } from "./order.model";
 
 type TProductForOrderLine = {
@@ -44,6 +49,8 @@ type TProductForOrderLine = {
     price: number;
     discount?: number;
     isAvailable?: boolean;
+    categoryIds?: unknown[];
+    categoryId?: unknown;
 };
 
 type TPricedOrderLine = {
@@ -61,6 +68,230 @@ const buildPricedLines = (
         const lineTotal = getLineTotal(unitPrice, quantity);
         return { product, quantity, unitPrice, lineTotal };
     });
+
+const resolveCategoryShippingCost = async (
+    pricedLines: TPricedOrderLine[],
+    subtotal: number,
+    pricingSettings: TOrderSettings,
+    session?: ClientSession
+) => {
+    if (!pricingSettings) {
+        throw new AppError(500, "No active default order pricing settings configured");
+    }
+
+    const categorySettings = await getActiveCategoryOrderSettingsService(session);
+    const defaultCharge = pricingSettings.shipping.shippingFlatAmount;
+
+    const categoryCharges = pricedLines.flatMap(({ product }) => {
+        const productCategoryIds = new Set(
+            [
+                ...(product.categoryIds ?? []),
+                ...(product.categoryId != null ? [product.categoryId] : []),
+            ].map((categoryId) => String(categoryId))
+        );
+        return categorySettings
+            .filter((setting) =>
+                (setting.shipping.categoryIds ?? []).some((categoryId) =>
+                    productCategoryIds.has(String(categoryId))
+                )
+            )
+            .map((setting) => setting.shipping.shippingFlatAmount);
+    });
+
+    const maxCategoryShippingCost =
+        categoryCharges.length > 0 ? Math.max(...categoryCharges) : null;
+
+    const freeDeliveryApplied =
+        pricingSettings.shipping.shippingType === "free" ||
+        (pricingSettings.shipping.shippingType === "free_above_threshold" &&
+            subtotal >= (pricingSettings.shipping.freeShippingMinSubtotal ?? 0));
+    const shippingCost = freeDeliveryApplied
+        ? 0
+        : Math.max(maxCategoryShippingCost ?? defaultCharge, defaultCharge);
+
+    return {
+        shippingCost: roundMoney(shippingCost),
+        maxCategoryShippingCost:
+            maxCategoryShippingCost === null ? null : roundMoney(maxCategoryShippingCost),
+        freeDeliveryApplied,
+    };
+};
+
+const getActiveDefaultOrderSettings = async (session?: ClientSession) => {
+    const query = OrderSettingsModel.findOne({
+        isActive: true,
+        $or: [{ isDefault: true }, { isDefault: { $exists: false } }],
+    })
+        .sort({ isDefault: -1 });
+
+    if (session) query.session(session);
+    return query;
+};
+
+const calculateCouponDiscount = async (subtotal: number, discountCode?: string) => {
+    if (!discountCode) return 0;
+
+    const coupon = await CouponModel.findOne({
+        code: discountCode.toUpperCase(),
+        isActive: true,
+    });
+    if (!coupon) {
+        throw new AppError(400, "Invalid discount code");
+    }
+
+    const now = new Date();
+    if (coupon.validFrom > now || coupon.validUntil < now) {
+        throw new AppError(400, "Discount code has expired");
+    }
+    if (coupon.maxUses && coupon.currentUses >= coupon.maxUses) {
+        throw new AppError(400, "Discount code usage limit reached");
+    }
+    if (coupon.minOrderAmount && subtotal < coupon.minOrderAmount) {
+        throw new AppError(400, `Minimum order amount of ${coupon.minOrderAmount} required`);
+    }
+
+    const calculatedDiscount =
+        coupon.discountType === "percentage"
+            ? (subtotal * coupon.discountValue) / 100
+            : coupon.discountValue;
+
+    return roundMoney(Math.min(Math.max(calculatedDiscount, 0), subtotal));
+};
+
+const getSelectedCartPricedLines = async (
+    userId: string,
+    selectedProductIds: string[]
+) => {
+    const cart = await CartModel.findOne({ userId }).populate({
+        path: "items.productId",
+        match: { isAvailable: true },
+    });
+
+    if (!cart || cart.items.length === 0) {
+        throw new AppError(400, "Cart is empty");
+    }
+
+    const selectedIdSet = new Set(selectedProductIds);
+    const selectedItems = cart.items.filter((item) => {
+        const productId = resolveCartItemProductId(item);
+        return productId != null && selectedIdSet.has(productId);
+    });
+
+    if (selectedItems.length !== selectedIdSet.size) {
+        throw new AppError(400, "One or more selected products are not in your cart");
+    }
+    if (selectedItems.some((item) => typeof item.productId !== "object" || item.productId == null)) {
+        throw new AppError(
+            400,
+            "One or more selected products are no longer available"
+        );
+    }
+
+    return buildPricedLines(
+        selectedItems.map((item) => ({
+            product: item.productId as unknown as TProductForOrderLine,
+            quantity: item.quantity,
+        }))
+    );
+};
+
+const getBuyNowPricedLines = async (productId: string, quantity: number) => {
+    const product = await ProductModel.findById(productId);
+    assertProductPurchasable(product);
+
+    if ((product.available ?? 0) < quantity) {
+        throw new AppError(400, "Insufficient stock available");
+    }
+
+    return buildPricedLines([{ product, quantity }]);
+};
+
+export type TOrderQuoteInput =
+    | {
+          mode: "cart";
+          selectedProductIds: string[];
+          couponCode?: string;
+          discountCode?: string;
+      }
+    | {
+          mode: "buy_now";
+          productId: string;
+          quantity: number;
+          couponCode?: string;
+          discountCode?: string;
+      };
+
+export const calculateOrderQuoteService = async (
+    userId: string,
+    input: TOrderQuoteInput
+) => {
+    const couponCode = (input.couponCode ?? input.discountCode)?.trim().toUpperCase();
+    const pricedLines =
+        input.mode === "cart"
+            ? await getSelectedCartPricedLines(userId, input.selectedProductIds)
+            : await getBuyNowPricedLines(input.productId, input.quantity);
+
+    const subtotal = pricedLines.reduce((sum, line) => sum + line.lineTotal, 0);
+    const productDiscount = roundMoney(
+        pricedLines.reduce(
+            (sum, { product, quantity }) =>
+                sum + getProductLineDiscount(product.price, product.discount ?? 0, quantity),
+            0
+        )
+    );
+    const couponDiscount = await calculateCouponDiscount(subtotal, couponCode);
+    const pricingSettings = await getActiveDefaultOrderSettings();
+
+    if (!pricingSettings) {
+        throw new AppError(500, "No active default order pricing settings configured");
+    }
+
+    const { tax } = calculateOrderCharges(subtotal, pricingSettings);
+    const shippingQuote = await resolveCategoryShippingCost(
+        pricedLines,
+        subtotal,
+        pricingSettings
+    );
+    const total = Math.max(
+        0,
+        roundMoney(subtotal + tax + shippingQuote.shippingCost - couponDiscount)
+    );
+
+    return {
+        items: pricedLines.map(({ product, quantity, unitPrice, lineTotal }) => ({
+            productId: product._id,
+            name: product.name,
+            originalPrice: product.price,
+            unitPrice,
+            quantity,
+            productDiscountAmount: getProductLineDiscount(
+                product.price,
+                product.discount ?? 0,
+                quantity
+            ),
+            lineTotal,
+        })),
+        couponCode,
+        subtotal: roundMoney(subtotal),
+        productDiscount,
+        couponDiscount,
+        couponDiscountAmount: couponDiscount,
+        tax,
+        shippingCost: shippingQuote.shippingCost,
+        total,
+        freeDeliveryApplied: shippingQuote.freeDeliveryApplied,
+        shippingDetails: {
+            shippingType: pricingSettings.shipping.shippingType,
+            defaultShippingCost: pricingSettings.shipping.shippingFlatAmount,
+            maxCategoryShippingCost: shippingQuote.maxCategoryShippingCost,
+            freeShippingMinSubtotal:
+                pricingSettings.shipping.shippingType === "free_above_threshold"
+                    ? pricingSettings.shipping.freeShippingMinSubtotal ?? null
+                    : null,
+            freeDeliveryApplied: shippingQuote.freeDeliveryApplied,
+        },
+    };
+};
 
 const getAddressSnapshotForOrder = async (
     userId: string,
@@ -140,9 +371,11 @@ const commitOrderFromPricedLines = async (
         );
 
         let couponDiscountAmount = 0;
-        if (options.discountCode) {
+        const couponCode = options.discountCode?.trim().toUpperCase();
+        if (couponCode) {
             const coupon = await CouponModel.findOne({
-                code: options.discountCode.toUpperCase(),
+                code: couponCode,
+                isActive: true,
             }).session(session);
             if (!coupon) {
                 throw new AppError(400, "Invalid discount code");
@@ -161,32 +394,49 @@ const commitOrderFromPricedLines = async (
                 throw new AppError(400, `Minimum order amount of ${coupon.minOrderAmount} required`);
             }
 
-            if (coupon.discountType === "percentage") {
-                couponDiscountAmount = roundMoney((subtotal * coupon.discountValue) / 100);
-            } else {
-                couponDiscountAmount = roundMoney(coupon.discountValue);
-            }
+            const calculatedDiscount =
+                coupon.discountType === "percentage"
+                    ? (subtotal * coupon.discountValue) / 100
+                    : coupon.discountValue;
+            couponDiscountAmount = roundMoney(
+                Math.min(Math.max(calculatedDiscount, 0), subtotal)
+            );
 
             coupon.currentUses += 1;
             await coupon.save({ session });
         }
 
-        const discountAmount = roundMoney(productDiscountAmount + couponDiscountAmount);
+        // Product discounts are already reflected in subtotal. This field is
+        // reserved for the coupon discount shown in order history.
+        const discountAmount = couponDiscountAmount;
 
         const items = pricedLines.map(({ product, quantity, unitPrice, lineTotal }) => ({
             productId: product._id,
             name: product.name,
+            originalPrice: product.price,
             price: unitPrice,
             quantity,
             total: lineTotal,
+            productDiscountAmount: getProductLineDiscount(
+                product.price,
+                product.discount ?? 0,
+                quantity
+            ),
         }));
 
-        const pricingSettings = await OrderSettingsModel.findOne({ isActive: true }).session(session);
+        const pricingSettings = await getActiveDefaultOrderSettings(session);
         if (!pricingSettings) {
             throw new AppError(500, "No active order pricing settings configured");
         }
 
-        const { tax, shippingCost } = calculateOrderCharges(subtotal, pricingSettings);
+        const { tax } = calculateOrderCharges(subtotal, pricingSettings);
+        const shippingQuote = await resolveCategoryShippingCost(
+            pricedLines,
+            subtotal,
+            pricingSettings,
+            session
+        );
+        const shippingCost = shippingQuote.shippingCost;
         const total = Math.max(0, roundMoney(subtotal + tax + shippingCost - couponDiscountAmount));
 
         const orderData = {
@@ -198,7 +448,11 @@ const commitOrderFromPricedLines = async (
             tax,
             shippingCost,
             subtotal,
-            discountCode: options.discountCode?.toUpperCase(),
+            couponCode,
+            // Keep the old field populated for clients using discountCode.
+            discountCode: couponCode,
+            productDiscountAmount,
+            couponDiscountAmount,
             discountAmount,
             total,
             paymentMethod: resolvedPayment.paymentMethod,
@@ -547,6 +801,12 @@ export const updateOrderStatusService = async (orderId: string, status: string) 
             );
             void notifyOrderDelivered(notifyPayload);
         }
+        if (status === "cancelled" && oldStatus !== "cancelled") {
+            const notifyPayload = toOrderDeliveredNotifyPayload(
+                typeof order.toObject === "function" ? order.toObject() : order
+            );
+            void notifyOrderCancelled(notifyPayload);
+        }
 
         return order;
     } catch (error) {
@@ -631,6 +891,10 @@ export const cancelOrderService = async (orderId: string, userId: string) => {
         await order.save({ session });
 
         await session.commitTransaction();
+        const notifyPayload = toOrderDeliveredNotifyPayload(
+            typeof order.toObject === "function" ? order.toObject() : order
+        );
+        void notifyOrderCancelled(notifyPayload);
         return order;
     } catch (error) {
         await session.abortTransaction();

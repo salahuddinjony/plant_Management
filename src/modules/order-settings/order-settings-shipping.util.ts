@@ -5,6 +5,7 @@ type ShippingInput = {
     shippingType: TOrderSettingsShipping["shippingType"];
     shippingFlatAmount?: number;
     freeShippingMinSubtotal?: number;
+    categoryIds?: string[];
 };
 
 /** Apply type-specific defaults (e.g. free → amounts 0). */
@@ -14,6 +15,7 @@ export const normalizeShipping = (input: ShippingInput): TOrderSettingsShipping 
             shippingType: "free",
             shippingFlatAmount: 0,
             freeShippingMinSubtotal: 0,
+            categoryIds: input.categoryIds ?? [],
         };
     }
 
@@ -22,6 +24,7 @@ export const normalizeShipping = (input: ShippingInput): TOrderSettingsShipping 
             shippingType: "flat",
             shippingFlatAmount: input.shippingFlatAmount ?? 0,
             freeShippingMinSubtotal: 0,
+            categoryIds: input.categoryIds ?? [],
         };
     }
 
@@ -29,6 +32,7 @@ export const normalizeShipping = (input: ShippingInput): TOrderSettingsShipping 
         shippingType: "free_above_threshold",
         shippingFlatAmount: input.shippingFlatAmount ?? 0,
         freeShippingMinSubtotal: input.freeShippingMinSubtotal ?? 0,
+        categoryIds: input.categoryIds ?? [],
     };
 };
 
@@ -70,6 +74,10 @@ export const mergeAndNormalizeShipping = (
             patch.freeShippingMinSubtotal !== undefined
                 ? patch.freeShippingMinSubtotal
                 : existing.freeShippingMinSubtotal,
+        categoryIds:
+            patch.categoryIds !== undefined
+                ? patch.categoryIds
+                : existing.categoryIds,
     };
 
     const normalized = normalizeShipping(merged);

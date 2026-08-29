@@ -74,7 +74,7 @@ export const sendStaffInviteNotification = async ({
         return { channel, inviteLink };
     }
 
-    const smsText = `Nursery Bazar Admin: Invited as ${roleName}. Accept: ${inviteLink} Code: ${inviteCode} (${expiryDays}d).`;
+    const smsText = `Nursery Bazar Admin: Invited as ${roleName}. Invite code: ${inviteCode} (${expiryDays}d).`;
     await sendMimSms(toMimMobileNumber(emailOrPhone), smsText);
     return { channel, inviteLink };
 };

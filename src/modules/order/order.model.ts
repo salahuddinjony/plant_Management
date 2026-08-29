@@ -25,6 +25,11 @@ const OrderSchema = new Schema<TOrder>(
                     type: String,
                     required: true,
                 },
+                // Immutable price snapshot captured when the order is placed.
+                originalPrice: {
+                    type: Number,
+                    min: 0,
+                },
                 price: {
                     type: Number,
                     required: true,
@@ -38,6 +43,11 @@ const OrderSchema = new Schema<TOrder>(
                 total: {
                     type: Number,
                     required: true,
+                    min: 0,
+                },
+                productDiscountAmount: {
+                    type: Number,
+                    default: 0,
                     min: 0,
                 },
             },
@@ -94,7 +104,19 @@ const OrderSchema = new Schema<TOrder>(
             required: true,
             min: 0,
         },
+        couponCode: String,
+        // Legacy field retained for backward-compatible order history reads.
         discountCode: String,
+        productDiscountAmount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        couponDiscountAmount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
         discountAmount: {
             type: Number,
             default: 0,

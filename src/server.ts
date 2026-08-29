@@ -5,6 +5,7 @@ import config from "./config";
 import { isSendGridConfigured } from "./utils/sendgridEmail";
 import seedDatabase from "./DB";
 import { ensureTtlIndexes } from "./DB/ensureTtlIndexes";
+import { OrderSettingsModel } from "./modules/order-settings/order-settings.model";
 
 let server: Server;
 
@@ -39,6 +40,7 @@ async function main() {
     const dbConnection = await mongoose.connect(config.MONGO_URI as string);
     // console.log(dbConnection.connection.host);
     console.log("Connected to database");
+    await OrderSettingsModel.syncIndexes();
     await ensureTtlIndexes();
     await seedDatabase();
 

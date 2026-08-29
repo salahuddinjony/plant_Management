@@ -10,6 +10,16 @@ import { orderValidation } from "./order.validation";
 const orderRouter = Router();
 
 /**
+ * Calculate cart or Buy Now pricing without creating an order.
+ */
+orderRouter.post(
+    "/quote",
+    auth(USER_ROLE.USER, USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    validateRequest(orderValidation.orderQuoteZodSchema),
+    orderController.getOrderQuote
+);
+
+/**
  * Buy now — single product, no cart required
  */
 orderRouter.post(

@@ -26,6 +26,7 @@ const PERMISSION_LABELS: Record<string, string> = {
     [PERMISSIONS.COUPONS_WRITE]: "Manage coupons",
     [PERMISSIONS.USERS_READ]: "View customers",
     [PERMISSIONS.REVIEWS_WRITE]: "Moderate reviews",
+    [PERMISSIONS.BLOGS_WRITE]: "Manage blog posts",
     [PERMISSIONS.STAFF_INVITE]: "Invite staff",
     [PERMISSIONS.STAFF_MANAGE]: "Manage staff",
 };

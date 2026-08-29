@@ -20,6 +20,7 @@ import { testRoutes } from "../modules/tests/tests.route";
 import transactionRouter from "../modules/transaction/transaction.route";
 import { userRoute } from "../modules/users/users.route";
 import wishlistRouter from "../modules/wishlist/wishlist.route";
+import blogPostRouter from "../modules/blog-post/blog-post.route";
 
 const router = Router();
 interface IModuleRoutes {
@@ -48,6 +49,10 @@ const moduleRoutes: IModuleRoutes[] = [
   {
     path: "/products",
     route: productRoutes,
+  },
+  {
+    path: "/blog-posts",
+    route: blogPostRouter,
   },
   {
     path: "/carousels",

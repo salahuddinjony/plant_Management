@@ -4,7 +4,8 @@ import { deleteImage, uploadImage } from "../../utils/imageUpload";
 import { TFlashSale } from "./flash-sale.interface";
 import { FlashSaleModel } from "./flash-sale.model";
 
-const FLASH_SALE_SEARCH_FIELDS = ["title", "description"];
+// searchTerm matches only the flash-sale title.
+const FLASH_SALE_SEARCH_FIELDS = ["title"];
 
 const applyDefaultFlashSaleSort = (
     query: Record<string, unknown>,
@@ -63,7 +64,7 @@ const getFlashSaleByIdService = async (id: string) => {
 };
 
 /**
- * Gets all flash sales (supports searchTerm on title, description).
+ * Gets all flash sales (supports searchTerm on title).
  */
 const getAllFlashSalesService = async (query: Record<string, unknown> = {}) => {
     return listFlashSales({}, query);

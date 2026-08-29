@@ -3,6 +3,16 @@ import { TOrderSettings } from "./order-settings.interface";
 
 const OrderSettingsSchema = new Schema<TOrderSettings>(
     {
+        name: {
+            type: String,
+            required: true,
+            default: "Delivery Settings",
+            trim: true,
+        },
+        isDefault: {
+            type: Boolean,
+            default: false,
+        },
         isActive: {
             type: Boolean,
             default: false,
@@ -35,14 +45,18 @@ const OrderSettingsSchema = new Schema<TOrderSettings>(
                 type: Number,
                 min: 0,
             },
+            categoryIds: {
+                type: [{ type: Schema.Types.ObjectId, ref: "category" }],
+                default: [],
+            },
         },
     },
     { timestamps: true }
 );
 
 OrderSettingsSchema.index(
-    { isActive: 1 },
-    { unique: true, partialFilterExpression: { isActive: true } }
+    { isDefault: 1 },
+    { unique: true, partialFilterExpression: { isDefault: true } }
 );
 
 export const OrderSettingsModel = model<TOrderSettings>("order_settings", OrderSettingsSchema);

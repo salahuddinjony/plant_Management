@@ -1,5 +1,7 @@
+import { ClientSession } from "mongoose";
 import QueryBuilder from "../../builder/QueryBuilder";
 import { FOLDER_NAMES } from "../../constants/folder.constants";
+import AppError from "../../errors/AppError";
 import { deleteImage, uploadImage } from "../../utils/imageUpload";
 import { CartModel } from "../cart/cart.model";
 import { FlashSaleModel } from "../flash-sale/flash-sale.model";
@@ -7,6 +9,7 @@ import { OrderModel } from "../order/order.model";
 import { ReviewModel } from "../review/review.model";
 import { PRODUCT_REVIEWS_POPULATE, syncProductReviewIds } from "../review/review.service";
 import { WishlistModel } from "../wishlist/wishlist.model";
+import { CategoryModel } from "../category/category.model";
 import {
     catalogFilterForRole,
     sanitizeCatalogQuery,
@@ -20,7 +23,8 @@ import {
 import { TProduct } from "./products.interface";
 import { ProductModel } from "./products.model";
 
-const PRODUCT_SEARCH_FIELDS = ["name", "description", "brand", "sku", "tags"];
+// searchTerm matches only the product name and tags.
+const PRODUCT_SEARCH_FIELDS = ["name", "tags"];
 const PRODUCT_SEARCH_ARRAY_FIELDS = ["tags"];
 
 /**
@@ -30,11 +34,56 @@ const PRODUCT_SEARCH_ARRAY_FIELDS = ["tags"];
  */
 type TProductCreateInput = TProduct & { quantity?: number };
 type TProductUpdateInput = Partial<TProduct> & {
+    categoryIds?: string[] | string;
+    categoryId?: string;
     quantity?: number;
     /** Existing image URLs to keep (optional); new file uploads are appended. */
     images?: string[] | string;
     file?: Express.Multer.File;
     files?: { [fieldname: string]: Express.Multer.File[] };
+};
+
+const normalizeCategoryIds = (
+    categoryIds?: string[] | string,
+    legacyCategoryId?: string
+): string[] | undefined => {
+    if (categoryIds === undefined && legacyCategoryId === undefined) {
+        return undefined;
+    }
+
+    let ids: string[];
+    if (Array.isArray(categoryIds)) {
+        ids = categoryIds;
+    } else if (typeof categoryIds === "string") {
+        try {
+            const parsed: unknown = JSON.parse(categoryIds);
+            if (!Array.isArray(parsed)) {
+                throw new Error("categoryIds must be an array");
+            }
+            ids = parsed.map(String);
+        } catch {
+            throw new AppError(400, "categoryIds must be a valid JSON array");
+        }
+    } else {
+        ids = legacyCategoryId ? [legacyCategoryId] : [];
+    }
+
+    const uniqueIds = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+    if (uniqueIds.some((id) => !/^[a-f\d]{24}$/i.test(id))) {
+        throw new AppError(400, "One or more category IDs are invalid");
+    }
+    return uniqueIds;
+};
+
+const assertCategoriesExist = async (categoryIds: string[], session?: ClientSession) => {
+    if (!categoryIds.length) return;
+
+    const countQuery = CategoryModel.countDocuments({ _id: { $in: categoryIds } });
+    if (session) countQuery.session(session);
+    const count = await countQuery;
+    if (count !== categoryIds.length) {
+        throw new AppError(400, "One or more selected categories were not found");
+    }
 };
 
 const createProductService = async (productData: TProductCreateInput) => {
@@ -45,13 +94,18 @@ const createProductService = async (productData: TProductCreateInput) => {
             .map((tag: string) => tag.trim().toLowerCase());
     }
 
+    const normalizedCategoryIds = normalizeCategoryIds(productData.categoryIds, productData.categoryId);
+    await assertCategoriesExist(normalizedCategoryIds ?? []);
+
     const qty = productData.quantity !== undefined ? Number(productData.quantity) : 0;
     const payload: TProduct = {
         ...productData,
+        ...(normalizedCategoryIds !== undefined && { categoryIds: normalizedCategoryIds }),
         available: qty,
         sold: 0,
     };
     delete (payload as TProductCreateInput).quantity;
+    delete payload.categoryId;
 
     const result = await ProductModel.create(payload);
 
@@ -169,7 +223,10 @@ const getAllProductsByCategoryIdService = async (
     role?: string
 ) => {
     const productQuery = new QueryBuilder(
-        ProductModel.find({ categoryId, ...catalogFilterForRole(role) }),
+        ProductModel.find({
+            $or: [{ categoryIds: categoryId }, { categoryId }],
+            ...catalogFilterForRole(role),
+        }),
         sanitizeCatalogQuery(query, role)
     )
         .search(PRODUCT_SEARCH_FIELDS, PRODUCT_SEARCH_ARRAY_FIELDS)
@@ -199,6 +256,14 @@ const updateProductService = async (id: string, productData: TProductUpdateInput
             throw new Error("Product not found");
         }
 
+        const normalizedCategoryIds = normalizeCategoryIds(
+            productData.categoryIds,
+            productData.categoryId
+        );
+        if (normalizedCategoryIds !== undefined) {
+            await assertCategoriesExist(normalizedCategoryIds, session);
+        }
+
         const existingUrls = collectProductImageUrls(existingProduct);
         const keptUrlsFromBody = parseProductImagesFromBody(productData.images);
         const newImageFiles = productData.files?.images;
@@ -213,7 +278,16 @@ const updateProductService = async (id: string, productData: TProductUpdateInput
             await deleteProductImagesFromStorage(urlsToDelete);
         }
 
-        const { quantity, sold, images: _images, files: _files, file: _file, ...rest } = productData;
+        const {
+            quantity,
+            sold,
+            images: _images,
+            files: _files,
+            file: _file,
+            categoryIds: _categoryIds,
+            categoryId: _categoryId,
+            ...rest
+        } = productData;
         const updatePayload: Record<string, unknown> = { ...rest };
 
         if (quantity !== undefined) {
@@ -223,9 +297,17 @@ const updateProductService = async (id: string, productData: TProductUpdateInput
             updatePayload.sold = Number(sold);
         }
 
+        if (normalizedCategoryIds !== undefined) {
+            updatePayload.categoryIds = normalizedCategoryIds;
+            updatePayload.$unset = { categoryId: "" };
+        }
+
         if (imagesChanged) {
             updatePayload.images = finalUrls;
-            updatePayload.$unset = { image: "" };
+            updatePayload.$unset = {
+                ...(updatePayload.$unset as Record<string, string> | undefined),
+                image: "",
+            };
         }
 
         const updatedProduct = await ProductModel.findByIdAndUpdate(

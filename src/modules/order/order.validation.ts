@@ -44,6 +44,8 @@ const orderBodySchema = z
             .min(1, "At least one product must be selected"),
         paymentMethod: paymentMethodField,
         transactionId: transactionIdField,
+        couponCode: z.string().trim().optional(),
+        /** @deprecated Use couponCode. */
         discountCode: z.string().optional(),
         notes: z.string().optional(),
     })
@@ -60,6 +62,8 @@ const buyNowOrderBodySchema = z
         shippingAddressId: z.string().regex(/^[0-9a-f]{24}$/i, "Invalid address ID"),
         paymentMethod: paymentMethodField,
         transactionId: transactionIdField,
+        couponCode: z.string().trim().optional(),
+        /** @deprecated Use couponCode. */
         discountCode: z.string().optional(),
         notes: z.string().optional(),
     })
@@ -67,6 +71,35 @@ const buyNowOrderBodySchema = z
 
 export const buyNowOrderZodSchema = z.object({
     body: buyNowOrderBodySchema,
+});
+
+const selectedProductIdsField = z
+    .array(z.string().regex(/^[0-9a-f]{24}$/i, "Invalid product ID"))
+    .min(1, "At least one product must be selected")
+    .refine((ids) => new Set(ids).size === ids.length, {
+        message: "Duplicate product IDs are not allowed",
+    });
+
+const orderQuoteBodySchema = z.discriminatedUnion("mode", [
+    z.object({
+        mode: z.literal("cart"),
+        selectedProductIds: selectedProductIdsField,
+        couponCode: z.string().trim().optional(),
+        /** @deprecated Use couponCode. */
+        discountCode: z.string().optional(),
+    }),
+    z.object({
+        mode: z.literal("buy_now"),
+        productId: z.string().regex(/^[0-9a-f]{24}$/i, "Invalid product ID"),
+        quantity: z.coerce.number().int().min(1, "Quantity must be at least 1"),
+        couponCode: z.string().trim().optional(),
+        /** @deprecated Use couponCode. */
+        discountCode: z.string().optional(),
+    }),
+]);
+
+export const orderQuoteZodSchema = z.object({
+    body: orderQuoteBodySchema,
 });
 
 const updateOrderStatusValidationSchema = z.object({
@@ -122,6 +155,7 @@ const updateOrderPaymentStatusValidationSchema = z.object({
 export const orderValidation = {
     createOrderZodSchema,
     buyNowOrderZodSchema,
+    orderQuoteZodSchema,
     updateOrderStatusValidationSchema,
     updateOrderPaymentStatusValidationSchema,
     orderByPeriodQuerySchema,
