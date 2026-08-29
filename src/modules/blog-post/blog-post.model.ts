@@ -8,6 +8,11 @@ const BlogPostSchema = new Schema<TBlogPost>(
             required: true,
             trim: true,
         },
+        subtitle: {
+            type: String,
+            required: true,
+            trim: true,
+        },
         description: {
             type: String,
             required: true,

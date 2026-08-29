@@ -24,6 +24,7 @@ const createBlogPostController = catchAsync(async (req: Request, res: Response) 
     );
     const result = await blogPostService.createBlogPostService({
         title: req.body.title,
+        subtitle: req.body.subtitle,
         description: req.body.description,
         images: uploadedImages,
         image: uploadedImages[0],

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const blogPostFieldsSchema = z.object({
     title: z.string().trim().min(2, "Title must be at least 2 characters long"),
+    subtitle: z.string().trim().min(2, "Subtitle must be at least 2 characters long"),
     description: z.string().trim().min(1, "Description is required"),
     isActive: z.coerce.boolean().default(true),
 });

@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 
 export type TBlogPost = {
     title: string;
+    subtitle: string;
     description: string;
     /** Legacy first-image field retained for backward compatibility. */
     image?: string;
