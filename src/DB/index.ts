@@ -6,7 +6,7 @@ import { UserModel } from "../modules/users/users.model";
 
 const superUser = {
     name: "Super Admin",
-    emailOrPhone: "admin@super.com",
+    emailOrPhone: "nurserybazarbd2008@gmail.com",
     // needsPasswordChange: true,
     role: USER_ROLE.SUPER_ADMIN,
     status: USER_STATUS.ACTIVE,
